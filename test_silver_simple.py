@@ -38,13 +38,25 @@ def test_silver_layer_simple():
         
         # 배당주 여부 플래그 추가
         merged_data['has_dividend'] = merged_data['dividend_yield'].fillna(0) > 0
-        # 수정: 이미 퍼센트로 저장된 데이터이므로 100을 곱하지 않음
         merged_data['dividend_yield_percent'] = merged_data['dividend_yield'].fillna(0)
         
         # 날짜 컬럼 정리
         merged_data['date'] = pd.to_datetime(merged_data['date']).dt.date
         
-        silver_data = merged_data.copy()
+        # 핵심 컬럼만 선택
+        silver_data = merged_data[[
+            'ticker',           # 종목코드
+            'company_name',     # 회사명
+            'date',             # 날짜
+            'Open',             # 시가
+            'High',             # 고가
+            'Low',              # 저가
+            'Close',            # 종가
+            'Volume',           # 거래량
+            'sector',           # 섹터 (분석용)
+            'dividend_yield_percent',  # 배당률
+            'has_dividend'      # 배당여부
+        ]].copy()
         
         # 3. 데이터 품질 검증
         print(f"\n3️⃣ 데이터 품질 검증:")
@@ -64,7 +76,7 @@ def test_silver_layer_simple():
                 print(f"  {sector}: {count}개")
             
             # 배당수익률 상위 5개
-            top_dividend = dividend_stocks.nlargest(5, 'dividend_yield')[['ticker', 'company_name', 'dividend_yield_percent', 'sector']]
+            top_dividend = dividend_stocks.nlargest(5, 'dividend_yield_percent')[['ticker', 'company_name', 'dividend_yield_percent', 'sector']]
             print(f"\n💰 배당수익률 상위 5개:")
             for _, row in top_dividend.iterrows():
                 print(f"  {row['ticker']} ({row['company_name'][:25]}): {row['dividend_yield_percent']:.2f}% - {row['sector']}")

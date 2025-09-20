@@ -138,6 +138,21 @@ def create_silver_layer_table(price_data, dividend_info):
         # 이미 퍼센트로 저장된 경우 그대로 사용
         silver_data['dividend_yield_percent'] = silver_data['dividend_yield_percent'].fillna(0)
     
+    # 핵심 컬럼만 선택
+    silver_data = silver_data[[
+        'ticker',           # 종목코드
+        'company_name',     # 회사명
+        'date',             # 날짜
+        'Open',             # 시가
+        'High',             # 고가
+        'Low',              # 저가
+        'Close',            # 종가
+        'Volume',           # 거래량
+        'sector',           # 섹터 (분석용)
+        'dividend_yield_percent',  # 배당률
+        'is_dividend_stock' # 배당여부
+    ]].copy()
+    
     # 데이터 품질 검증
     print(f"📊 데이터 품질 검증:")
     print(f"  전체 레코드 수: {len(silver_data)}")
