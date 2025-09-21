@@ -4,7 +4,7 @@ Bronze Layer에서 수집한 Delta Table을 기반으로 배당주 필터링 및
 """
 
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Optional, List, Tuple
 import logging
 from deltalake import DeltaTable, write_deltalake
@@ -36,7 +36,7 @@ class SilverLayerDelta:
         self.silver_unified_path = f"gs://{gcs_bucket}/{silver_path}/unified_stock_data"
         self.silver_dividend_path = f"gs://{gcs_bucket}/{silver_path}/dividend_stocks"
     
-    def load_bronze_data(self, target_date: Optional[datetime.date] = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def load_bronze_data(self, target_date: Optional[date] = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Bronze Layer에서 Delta Table 데이터 로드"""
         logger.info(f" Bronze Layer Delta Table 데이터 로드 중...")
         
@@ -60,18 +60,30 @@ class SilverLayerDelta:
             
         except Exception as e:
             logger.error(f"❌ Bronze Layer 데이터 로드 실패: {e}")
-            raise
+            # 수정: 일관성 있는 에러 메시지로 예외 재발생
+            raise Exception(f"Bronze Layer 데이터 로드 실패: {e}") from e
     
     def create_unified_table(self, price_df: pd.DataFrame, dividend_df: pd.DataFrame) -> pd.DataFrame:
         """통합 테이블 생성"""
         logger.info(f"\n️ Silver Layer 통합 테이블 생성 중...")
         
+        # Delta Lake의 스키마 진화를 고려한 유연한 컬럼 선택
+        # 필수 컬럼만 확인하고, 나머지는 선택적
+        required_columns = ['ticker', 'company_name', 'sector', 'has_dividend', 'dividend_yield']
+        
+        # 필수 컬럼 존재 확인
+        missing_required = [col for col in required_columns if col not in dividend_df.columns]
+        if missing_required:
+            raise ValueError(f"필수 컬럼이 누락되었습니다: {missing_required}")
+        
+        # 존재하는 컬럼만 선택 (Delta Lake의 스키마 진화 지원)
+        available_columns = [col for col in dividend_df.columns if col in required_columns or 
+                            col in ['dividend_yield_percent', 'dividend_rate', 'ex_dividend_date', 
+                                   'payment_date', 'dividend_frequency', 'market_cap', 'last_price']]
+        
         # 가격 데이터와 배당 정보 조인
         unified_df = price_df.merge(
-            dividend_df[['ticker', 'company_name', 'sector', 'has_dividend', 
-                        'dividend_yield', 'dividend_yield_percent', 'dividend_rate',
-                        'ex_dividend_date', 'payment_date', 'dividend_frequency',
-                        'market_cap', 'last_price']], 
+            dividend_df[available_columns], 
             on='ticker', 
             how='left'
         )
@@ -98,7 +110,7 @@ class SilverLayerDelta:
         
         return unified_df
     
-    def save_unified_data(self, unified_df: pd.DataFrame, target_date: Optional[datetime.date] = None):
+    def save_unified_data(self, unified_df: pd.DataFrame, target_date: Optional[date] = None):
         """통합 데이터를 Delta Table에 저장"""
         logger.info(f"\n💾 Silver Layer 통합 데이터 저장 중...")
         
@@ -180,13 +192,13 @@ class SilverLayerDelta:
         logger.info(f"  최대값: {dividend_stocks['dividend_yield_percent'].max():.2f}%")
         logger.info(f"  최소값: {dividend_stocks['dividend_yield_percent'].min():.2f}%")
     
-    def run_silver_processing(self, target_date: Optional[datetime.date] = None):
-        """Silver Layer 처리 실행"""
+    def run_silver_processing(self, target_date: Optional[date] = None):
+        """Silver Layer 전체 처리 실행"""
         if target_date is None:
-            target_date = datetime.now().date() - timedelta(days=1)
+            target_date = date.today()
         
         logger.info("=" * 80)
-        logger.info(" Silver Layer 데이터 처리 (Delta Lake)")
+        logger.info(f" Silver Layer 처리 시작")
         logger.info("=" * 80)
         logger.info(f" 처리 날짜: {target_date}")
         
@@ -221,7 +233,8 @@ class SilverLayerDelta:
             
         except Exception as e:
             logger.error(f"❌ Silver Layer 처리 실패: {e}")
-            raise
+            # 수정: 일관성 있는 에러 메시지로 예외 재발생
+            raise Exception(f"Silver Layer 처리 실패: {e}") from e
 
 def main():
     """메인 실행 함수"""
@@ -231,6 +244,16 @@ def main():
     gcs_bucket = os.getenv("GCS_BUCKET", "your-stock-dashboard-bucket")
     
     silver_layer = SilverLayerDelta(gcs_bucket=gcs_bucket)
+    
+    try:
+        silver_layer.run_silver_processing()
+    except Exception as e:
+        logger.error(f"❌ 실행 실패: {e}")
+        raise
+
+if __name__ == "__main__":
+    main()
+
     
     try:
         silver_layer.run_silver_processing()

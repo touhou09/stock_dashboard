@@ -48,7 +48,8 @@ class TestDataValidation:
         # 수정: 가격 데이터 품질 검증
         assert sample_price_data['Close'].min() > 0, "Close price should be positive"
         assert sample_price_data['Volume'].min() >= 0, "Volume should be non-negative"
-        assert sample_price_data['High'] >= sample_price_data['Low'], "High should be >= Low"
+        # 수정: pandas Series 비교 문제 해결
+        assert (sample_price_data['High'] >= sample_price_data['Low']).all(), "High should be >= Low"
         
         # 수정: 배당 데이터 품질 검증
         assert sample_dividend_data['dividend_yield'].min() >= 0, "Dividend yield should be non-negative"

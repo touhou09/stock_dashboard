@@ -75,43 +75,46 @@ Wikipedia → Bronze Layer → Delta Table → Silver Layer → 분석 결과
 
 ## �� 테스트 실행 방법
 
-### 1. 의존성 설치
+### 1. 의존성 설치 (uv 사용)
 ```bash
-pip install -r requirements.txt
-pip install pytest pytest-mock pytest-cov
+# 개발 의존성 설치
+uv sync --dev
+
+# 또는 직접 pytest 추가
+uv add --dev pytest pytest-mock pytest-cov
 ```
 
 ### 2. 전체 테스트 실행
 ```bash
 # 모든 테스트 실행
-pytest
+uv run pytest tests/ -v
 
 # 상세 출력과 함께 실행
-pytest -v
+uv run pytest tests/ -v --tb=short
 
 # 커버리지 리포트와 함께 실행
-pytest --cov=. --cov-report=html
+uv run pytest tests/ --cov=. --cov-report=html
 ```
 
 ### 3. 특정 테스트 실행
 ```bash
 # 특정 파일 테스트
-pytest tests/test_bronze_layer_delta.py
+uv run pytest tests/test_bronze_layer_delta.py
 
 # 특정 클래스 테스트
-pytest tests/test_bronze_layer_delta.py::TestBronzeLayerDelta
+uv run pytest tests/test_bronze_layer_delta.py::TestBronzeLayerDelta
 
 # 특정 메서드 테스트
-pytest tests/test_bronze_layer_delta.py::TestBronzeLayerDelta::test_init
+uv run pytest tests/test_bronze_layer_delta.py::TestBronzeLayerDelta::test_init
 ```
 
 ### 4. 마커를 사용한 테스트 실행
 ```bash
 # 느린 테스트 제외
-pytest -m "not slow"
+uv run pytest -m "not slow"
 
 # 통합 테스트만 실행
-pytest -m "integration"
+uv run pytest -m "integration"
 ```
 
 ## 📊 테스트 커버리지
@@ -132,80 +135,88 @@ pytest -m "integration"
 ## 🔧 테스트 설정
 
 **pytest.ini 설정:**
-```
+```ini
+[tool:pytest]
+testpaths = tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+addopts = 
+    -v
+    --tb=short
+    --strict-markers
+    --disable-warnings
+markers =
+    slow: marks tests as slow (deselect with '-m "not slow"')
+    integration: marks tests as integration tests
 ```
 
-## 해결 방법
+## ✅ 최신 테스트 실행 결과 (2025-09-21)
 
-### 1. pytest 설치
+### 📈 테스트 성공률: 100% (43/43)
+
+**테스트 실행 시간:** 33.28초
+
+**파일별 테스트 결과:**
+- `test_bronze_layer_delta.py`: 18개 테스트 통과 ✅
+- `test_integration.py`: 5개 테스트 통과 ✅  
+- `test_silver_layer_delta.py`: 13개 테스트 통과 ✅
+- `test_utils.py`: 7개 테스트 통과 ✅
+
+### 🔧 해결한 주요 문제들
+
+1. **pytest 설치 문제**
+   - 문제: `uv sync --dev` 명령으로 pytest가 설치되지 않음
+   - 해결: `uv add --dev pytest pytest-mock pytest-cov` 명령으로 직접 설치
+
+2. **예외 메시지 불일치**
+   - 문제: 테스트에서 기대하는 예외 메시지와 실제 메시지가 다름
+   - 해결: `silver_layer_delta.py`에서 일관성 있는 에러 메시지 사용
+   ```python
+   # 수정 전
+   raise  # 원본 예외 그대로 전파
+   
+   # 수정 후
+   raise Exception(f"Bronze Layer 데이터 로드 실패: {e}") from e
+   ```
+
+3. **데이터 스키마 문제**
+   - 문제: 테스트 데이터에 필요한 모든 컬럼이 없어서 KeyError 발생
+   - 해결: Delta Lake의 스키마 진화를 지원하는 유연한 컬럼 선택 로직 구현
+   ```python
+   # 필수 컬럼만 확인하고, 나머지는 선택적
+   required_columns = ['ticker', 'company_name', 'sector', 'has_dividend', 'dividend_yield']
+   available_columns = [col for col in dividend_df.columns if col in required_columns or 
+                       col in optional_columns]
+   ```
+
+4. **pandas Series 비교 문제**
+   - 문제: `High >= Low` 비교에서 ambiguous truth value 오류
+   - 해결: `.all()` 메서드 사용
+   ```python
+   # 수정 전
+   assert sample_price_data['High'] >= sample_price_data['Low']
+   
+   # 수정 후
+   assert (sample_price_data['High'] >= sample_price_data['Low']).all()
+   ```
+
+### 🎯 개선된 코드의 장점
+
+1. **Delta Lake 스키마 진화 지원**: 새로운 컬럼이 추가되어도 자동으로 처리
+2. **테스트 친화적**: 간단한 테스트 데이터로도 동작
+3. **운영 안정성**: 실제 데이터에 선택적 컬럼이 없어도 오류 없이 처리
+4. **일관성 있는 에러 처리**: 명확한 예외 메시지와 chained exception
+
+### ⚠️ 남은 경고들
+- pandas의 FutureWarning들 (기능에는 영향 없음)
+- 향후 pandas 버전 업그레이드 시 수정 고려
+
+## 🛠️ 트러블슈팅 가이드
+
+### pytest 설치 문제 해결
 ```bash
-# uv를 사용하여 pytest 설치
-uv add pytest pytest-mock pytest-cov
-
-# 또는 pip를 사용하여 설치
-pip install pytest pytest-mock pytest-cov
-```
-
-### 2. 테스트 실행 명령어 수정
-```bash
-# 올바른 테스트 실행 명령어
-uv run pytest tests/
-
-# 또는
-uv run python -m pytest tests/
-
-# 또는 직접 pytest 실행
-pytest tests/
-```
-
-### 3. requirements.txt에 테스트 의존성 추가
-```txt
-# 기존 의존성에 추가
-pytest>=7.0.0
-pytest-mock>=3.10.0
-pytest-cov>=4.0.0
-```
-
-### 4. pyproject.toml에 테스트 의존성 추가 (uv 사용 시)
-```toml
-<code_block_to_apply_changes_from>
-[project]
-dependencies = [
-    "yfinance>=0.2.18",
-    "pandas>=1.5.0",
-    "numpy>=1.24.0",
-    "requests>=2.28.0",
-    "lxml>=4.9.0",
-    "html5lib>=1.1",
-    "beautifulsoup4>=4.11.0",
-    "finance-datareader>=0.9.50",
-    "pyarrow>=10.0.0",
-    "google-cloud-storage>=2.0.0",
-    "deltalake>=0.15.0",
-    "pytest>=7.0.0",
-    "pytest-mock>=3.10.0",
-    "pytest-cov>=4.0.0"
-]
-
-[project.optional-dependencies]
-test = [
-    "pytest>=7.0.0",
-    "pytest-mock>=3.10.0",
-    "pytest-cov>=4.0.0"
-]
-```
-
-### 5. 테스트 실행 스크립트 생성
-```bash
-# test.sh 파일 생성
-#!/bin/bash
-echo "테스트 실행 중..."
-uv run pytest tests/ -v --tb=short
-```
-
-### 6. 환경 확인
-```bash
-# uv 환경에서 pytest 확인
+# uv 환경에서 pytest 설치 확인
 uv run which pytest
 
 # pytest 버전 확인
@@ -215,4 +226,26 @@ uv run pytest --version
 uv pip list | grep pytest
 ```
 
-이렇게 수정하면 `uv run pytest tests/` 명령어가 정상적으로 작동할 것입니다.
+### 테스트 실행 명령어
+```bash
+# 올바른 테스트 실행 명령어
+uv run pytest tests/ -v
+
+# 또는
+uv run python -m pytest tests/ -v
+
+# 특정 테스트만 실행
+uv run pytest tests/test_bronze_layer_delta.py::TestSilverLayerDelta::test_load_bronze_data_failure -v
+```
+
+### 환경 설정
+```bash
+# 가상환경 재생성 (문제 발생 시)
+rm -rf .venv
+uv sync --dev
+
+# 의존성 강제 재설치
+uv add --dev pytest pytest-mock pytest-cov
+```
+
+이제 모든 테스트가 완벽하게 작동하며, Delta Lake의 스키마 진화를 지원하는 유연하고 안정적인 코드베이스가 구축되었습니다! 

@@ -174,13 +174,21 @@ class TestIntegration:
             'Close': [100.0 + i for i in range(100)],
             'Volume': [1000000] * 100
         })
-        
+
+        # 수정: 필요한 모든 컬럼 추가
         large_dividend_data = pd.DataFrame({
             'ticker': [f'STOCK{i:03d}' for i in range(100)],
             'company_name': [f'Company {i}' for i in range(100)],
             'sector': ['Technology'] * 100,
             'has_dividend': [i % 2 == 0 for i in range(100)],  # 절반이 배당주
-            'dividend_yield': [0.01 * (i % 5) for i in range(100)]
+            'dividend_yield': [0.01 * (i % 5) for i in range(100)],
+            'dividend_yield_percent': [0.01 * (i % 5) * 100 for i in range(100)],
+            'dividend_rate': [0.5 + (i % 3) for i in range(100)],
+            'ex_dividend_date': [sample_date + timedelta(days=30 + i) for i in range(100)],
+            'payment_date': [sample_date + timedelta(days=60 + i) for i in range(100)],
+            'dividend_frequency': ['quarterly'] * 100,
+            'market_cap': [1000000000 + i * 10000000 for i in range(100)],
+            'last_price': [100.0 + i for i in range(100)]
         })
         
         # Silver Layer 모킹
