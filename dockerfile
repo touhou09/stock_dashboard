@@ -1,25 +1,27 @@
 FROM python:3.12-slim
 
-# uv 설치
+# [수정] uv가 만드는 .venv가 /opt/app/.venv에 생기도록, 의존성 설치 전에 작업 디렉터리 고정
+WORKDIR /opt/app
+
+# uv 설치(변경 없음)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
-# uv 설정 파일 복사
+# [수정] 의존성 레이어 캐시 최적화: 의존성 정의만 먼저 복사
 COPY pyproject.toml uv.lock ./
 
-# 의존성 설치
+# [수정] 잠금 고정 설치: .venv가 /opt/app/.venv에 생성됨
 RUN uv sync --frozen --no-dev
 
-# 소스 코드 복사
+# 소스 코드 복사(변경 없음)
 COPY src /opt/app/src
 COPY *.py /opt/app/
 
-WORKDIR /opt/app
+# [수정] 이후 모든 RUN/CMD에서 venv 파이썬을 쓰도록 PATH를 먼저 설정
+ENV PATH="/opt/app/.venv/bin:$PATH"
 
-# Python 파일들을 .pyc로 컴파일
+# 바이트코드 컴파일(변경 없음)
 RUN uv run python -m compileall -b .
 RUN find . -name "*.py" -exec rm {} \;
 
-# 환경변수 설정
-ENV PATH="/opt/app/.venv/bin:$PATH"
-
-CMD ["python3", "src/app/main.pyc"]
+# [수정] venv의 python을 확실히 사용하도록 "python"으로 지정
+CMD ["python", "src/app/main.pyc"]

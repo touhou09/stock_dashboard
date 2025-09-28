@@ -12,7 +12,7 @@ on:
         description: 'Path to Docker context (folder containing Dockerfile)'
         type: string
         required: true
-      # [수정] build_timeout 입력 제거 (job-level timeout으로 대체)
+      # [수정] build_timeout 입력 제거(잡 옵션으로 통일)
     secrets:
       DOCKERHUB_USERNAME:
         required: true
@@ -21,8 +21,8 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest                # [수정] 러너 그룹 대신 GitHub 호스티드 기본값 사용
-    timeout-minutes: 60                   # [수정] 간단히 고정 타임아웃(필요시 값만 변경)
+    runs-on: ubuntu-latest              # [수정] 러너 그룹 대신 GitHub 호스티드 기본값
+    timeout-minutes: 60                 # [수정] 입력 대신 고정(필요시 숫자만 조정)
     outputs:
       image_version: ${{ steps.meta.outputs.version }}
       image_id: ${{ steps.build_push.outputs.imageid }}
@@ -68,7 +68,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ${{ inputs.path }}
-          # [수정] file 옵션 제거(Dockerfile 자동 탐지; path/Dockerfile 또는 path/dockerfile 지원)
+          # [수정] file 옵션 제거 → Dockerfile 자동 탐지(Dockerfile/dockerfile)
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
