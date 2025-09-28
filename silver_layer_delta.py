@@ -1,21 +1,27 @@
 """
-Silver Layer - Delta Lake 기반 데이터 정제 및 통합
-Bronze Layer에서 수집한 Delta Table을 기반으로 배당주 필터링 및 통합 테이블 생성
+Silver Layer - Delta Lake 기반 계산/집계 지표 생성
+Bronze Layer의 원천 데이터를 기반으로 배당 지표를 계산하여 저장
+- TTM 배당수익률, 배당횟수, 최근 배당일 등 계산된 지표
 """
 
 import pandas as pd
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from typing import Optional, List, Tuple
 import logging
 from deltalake import DeltaTable, write_deltalake
 import pyarrow as pa
+from google.cloud import storage
+from dotenv import load_dotenv
+
+# .env 파일 로드
+load_dotenv()
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class SilverLayerDelta:
-    """Silver Layer Delta Lake 기반 관리 클래스"""
+    """Silver Layer Delta Lake 기반 관리 클래스 - 계산된 지표만 저장"""
     
     def __init__(self, gcs_bucket: str, bronze_path: str = "stock_dashboard/bronze", silver_path: str = "stock_dashboard/silver"):
         """
@@ -30,210 +36,247 @@ class SilverLayerDelta:
         self.bronze_path = bronze_path
         self.silver_path = silver_path
         
-        # Delta Table 경로 설정
-        self.bronze_price_path = f"gs://{gcs_bucket}/{bronze_path}/sp500_daily_prices"
-        self.bronze_dividend_path = f"gs://{gcs_bucket}/{bronze_path}/sp500_dividend_info"
-        self.silver_unified_path = f"gs://{gcs_bucket}/{silver_path}/unified_stock_data"
-        self.silver_dividend_path = f"gs://{gcs_bucket}/{silver_path}/dividend_stocks"
+        # Bronze Layer Delta Table 경로 (권장 구조)
+        self.bronze_price_path = f"gs://{gcs_bucket}/{bronze_path}/bronze_price_daily"
+        self.bronze_dividend_events_path = f"gs://{gcs_bucket}/{bronze_path}/bronze_dividend_events"
+        
+        # Silver Layer Delta Table 경로 (권장 구조)
+        self.silver_dividend_metrics_path = f"gs://{gcs_bucket}/{silver_path}/silver_dividend_metrics_daily"
     
-    def load_bronze_data(self, target_date: Optional[date] = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """Bronze Layer에서 Delta Table 데이터 로드"""
-        logger.info(f" Bronze Layer Delta Table 데이터 로드 중...")
+    def load_bronze_price_data(self, target_date: date) -> pd.DataFrame:
+        """Bronze Layer에서 가격 데이터 로드"""
+        logger.info(f" Bronze Layer 가격 데이터 로드 중... (날짜: {target_date})")
         
         try:
             # Delta Table에서 데이터 로드
             price_delta = DeltaTable(self.bronze_price_path)
-            dividend_delta = DeltaTable(self.bronze_dividend_path)
-            
-            # pandas DataFrame으로 변환
             price_df = price_delta.to_pandas()
-            dividend_df = dividend_delta.to_pandas()
             
             # 날짜 필터링
-            if target_date:
-                price_df = price_df[price_df['date'] == target_date]
+            price_df['date'] = pd.to_datetime(price_df['date']).dt.date
+            price_df = price_df[price_df['date'] == target_date]
             
             logger.info(f"✅ 가격 데이터 로드 완료: {len(price_df)}행")
-            logger.info(f"✅ 배당 정보 로드 완료: {len(dividend_df)}행")
-            
-            return price_df, dividend_df
+            return price_df
             
         except Exception as e:
-            logger.error(f"❌ Bronze Layer 데이터 로드 실패: {e}")
-            # 수정: 일관성 있는 에러 메시지로 예외 재발생
-            raise Exception(f"Bronze Layer 데이터 로드 실패: {e}") from e
+            logger.error(f"❌ Bronze 가격 데이터 로드 실패: {e}")
+            raise Exception(f"Bronze 가격 데이터 로드 실패: {e}") from e
     
-    def create_unified_table(self, price_df: pd.DataFrame, dividend_df: pd.DataFrame) -> pd.DataFrame:
-        """통합 테이블 생성"""
-        logger.info(f"\n️ Silver Layer 통합 테이블 생성 중...")
-        
-        # Delta Lake의 스키마 진화를 고려한 유연한 컬럼 선택
-        # 필수 컬럼만 확인하고, 나머지는 선택적
-        required_columns = ['ticker', 'company_name', 'sector', 'has_dividend', 'dividend_yield']
-        
-        # 필수 컬럼 존재 확인
-        missing_required = [col for col in required_columns if col not in dividend_df.columns]
-        if missing_required:
-            raise ValueError(f"필수 컬럼이 누락되었습니다: {missing_required}")
-        
-        # 존재하는 컬럼만 선택 (Delta Lake의 스키마 진화 지원)
-        available_columns = [col for col in dividend_df.columns if col in required_columns or 
-                            col in ['dividend_yield_percent', 'dividend_rate', 'ex_dividend_date', 
-                                   'payment_date', 'dividend_frequency', 'market_cap', 'last_price']]
-        
-        # 가격 데이터와 배당 정보 조인
-        unified_df = price_df.merge(
-            dividend_df[available_columns], 
-            on='ticker', 
-            how='left'
-        )
-        
-        # 배당주 여부 플래그
-        unified_df['is_dividend_stock'] = unified_df['has_dividend'].fillna(False)
-        unified_df['processing_timestamp'] = datetime.now()
-        
-        # 데이터 품질 검증
-        total_count = len(unified_df)
-        dividend_count = unified_df['is_dividend_stock'].sum()
-        
-        logger.info(f"📊 데이터 품질 검증:")
-        logger.info(f"  전체 레코드 수: {total_count}")
-        logger.info(f"  배당주 레코드 수: {dividend_count}")
-        logger.info(f"  배당주 비율: {(dividend_count / total_count * 100):.1f}%")
-        
-        # 결측값 확인
-        logger.info(f"  결측값 현황:")
-        for col in unified_df.columns:
-            null_count = unified_df[col].isnull().sum()
-            if null_count > 0:
-                logger.info(f"    {col}: {null_count}개 ({(null_count/total_count*100):.1f}%)")
-        
-        return unified_df
-    
-    def save_unified_data(self, unified_df: pd.DataFrame, target_date: Optional[date] = None):
-        """통합 데이터를 Delta Table에 저장"""
-        logger.info(f"\n💾 Silver Layer 통합 데이터 저장 중...")
+    def load_bronze_dividend_events(self, target_date: date, lookback_days: int = 365) -> pd.DataFrame:
+        """Bronze Layer에서 배당 이벤트 데이터 로드 (TTM 계산용)"""
+        logger.info(f" Bronze Layer 배당 이벤트 데이터 로드 중... (TTM: {lookback_days}일)")
         
         try:
-            # 기존 Delta Table 확인
-            unified_delta = DeltaTable(self.silver_unified_path)
+            # Delta Table에서 데이터 로드
+            dividend_delta = DeltaTable(self.bronze_dividend_events_path)
+            dividend_df = dividend_delta.to_pandas()
+            
+            # TTM 기간 계산
+            start_date = target_date - timedelta(days=lookback_days)
+            dividend_df['ex_date'] = pd.to_datetime(dividend_df['ex_date']).dt.date
+            
+            # TTM 기간 내 배당 이벤트만 필터링
+            dividend_df = dividend_df[
+                (dividend_df['ex_date'] >= start_date) & 
+                (dividend_df['ex_date'] <= target_date)
+            ]
+            
+            logger.info(f"✅ 배당 이벤트 데이터 로드 완료: {len(dividend_df)}행 (TTM 기간)")
+            return dividend_df
+            
+        except Exception as e:
+            logger.error(f"❌ Bronze 배당 이벤트 데이터 로드 실패: {e}")
+            raise Exception(f"Bronze 배당 이벤트 데이터 로드 실패: {e}") from e
+    
+    def build_dividend_metrics_daily(self, price_df: pd.DataFrame, dividend_events_df: pd.DataFrame, target_date: date) -> pd.DataFrame:
+        """
+        배당 지표 계산 (Silver Layer 핵심 함수)
+        
+        Args:
+            price_df: Bronze 가격 데이터
+            dividend_events_df: Bronze 배당 이벤트 데이터 (TTM 기간)
+            target_date: 계산 기준일
+            
+        Returns:
+            pd.DataFrame: 계산된 배당 지표
+        """
+        logger.info(f"\n📊 배당 지표 계산 중... (기준일: {target_date})")
+        
+        metrics_list = []
+        
+        for _, price_row in price_df.iterrows():
+            ticker = price_row['ticker']
+            last_price = price_row['close']  # 기준일 종가
+            
+            # 해당 티커의 TTM 배당 이벤트 필터링
+            ticker_dividends = dividend_events_df[
+                dividend_events_df['ticker'] == ticker
+            ].copy()
+            
+            if ticker_dividends.empty:
+                # 배당 이벤트가 없는 경우
+                metrics = {
+                    'as_of_date': target_date,
+                    'ticker': ticker,
+                    'last_price': last_price,
+                    'market_cap': 0,  # Bronze에 없으므로 0으로 설정
+                    'dividend_ttm': 0.0,
+                    'dividend_yield_ttm': 0.0,
+                    'div_count_1y': 0,
+                    'last_div_date': None,
+                    'updated_at': datetime.now(timezone.utc)
+                }
+            else:
+                # 배당 지표 계산
+                dividend_ttm = ticker_dividends['amount'].sum()
+                dividend_yield_ttm = (dividend_ttm / last_price) * 100 if last_price > 0 else 0.0
+                div_count_1y = len(ticker_dividends)
+                last_div_date = ticker_dividends['ex_date'].max()
+                
+                metrics = {
+                    'as_of_date': target_date,
+                    'ticker': ticker,
+                    'last_price': last_price,
+                    'market_cap': 0,  # Bronze에 없으므로 0으로 설정
+                    'dividend_ttm': dividend_ttm,
+                    'dividend_yield_ttm': dividend_yield_ttm,
+                    'div_count_1y': div_count_1y,
+                    'last_div_date': last_div_date,
+                    'updated_at': datetime.now(timezone.utc)
+                }
+            
+            metrics_list.append(metrics)
+        
+        # DataFrame으로 변환
+        metrics_df = pd.DataFrame(metrics_list)
+        
+        # 배당주 필터링 (TTM 배당이 있는 종목)
+        dividend_stocks = metrics_df[metrics_df['dividend_ttm'] > 0]
+        
+        logger.info(f" 계산 결과:")
+        logger.info(f"  전체 종목 수: {len(metrics_df)}개")
+        logger.info(f"  배당주 종목 수: {len(dividend_stocks)}개")
+        
+        if not dividend_stocks.empty:
+            logger.info(f"  TTM 배당수익률 평균: {dividend_stocks['dividend_yield_ttm'].mean():.2f}%")
+            logger.info(f"  TTM 배당수익률 최대: {dividend_stocks['dividend_yield_ttm'].max():.2f}%")
+            
+            # 배당수익률 상위 5개
+            top_dividend = dividend_stocks.nlargest(5, 'dividend_yield_ttm')
+            logger.info(f"  배당수익률 상위 5개:")
+            for _, row in top_dividend.iterrows():
+                logger.info(f"    {row['ticker']}: {row['dividend_yield_ttm']:.2f}% (TTM: ${row['dividend_ttm']:.2f})")
+        
+        return metrics_df
+    
+    def save_dividend_metrics_to_delta(self, metrics_df: pd.DataFrame, target_date: date):
+        """배당 지표를 Delta Table에 저장 (Silver 스키마)"""
+        logger.info(f"\n💾 배당 지표를 Silver Delta Table에 저장 중...")
+        
+        try:
+            # Delta Table이 존재하는지 확인
+            delta_table = DeltaTable(self.silver_dividend_metrics_path)
             mode = "append"
-            logger.info("✅ 기존 통합 Delta Table에 데이터 추가")
+            logger.info("✅ 기존 Silver 배당 지표 테이블에 데이터 추가")
         except Exception:
             mode = "overwrite"
-            logger.info("🆕 새로운 통합 Delta Table 생성")
+            logger.info("�� 새로운 Silver 배당 지표 테이블 생성")
         
         # Delta Table에 저장
         write_deltalake(
-            self.silver_unified_path,
-            unified_df,
+            self.silver_dividend_metrics_path,
+            metrics_df,
             mode=mode,
-            partition_by=["date", "is_dividend_stock"],  # 날짜와 배당주 여부별 파티셔닝
-            engine="pyarrow"
+            partition_by=["as_of_date"]  # 기준일별 파티셔닝
         )
         
-        logger.info(f"✅ 통합 테이블 저장 완료: {len(unified_df)}행")
-        logger.info(f"📍 저장 위치: {self.silver_unified_path}")
-        
-        # 배당주만 필터링한 테이블 저장
-        dividend_stocks_df = unified_df[unified_df['is_dividend_stock'] == True]
-        
-        if not dividend_stocks_df.empty:
-            try:
-                dividend_delta = DeltaTable(self.silver_dividend_path)
-                mode = "append"
-                logger.info("✅ 기존 배당주 Delta Table에 데이터 추가")
-            except Exception:
-                mode = "overwrite"
-                logger.info("🆕 새로운 배당주 Delta Table 생성")
-            
-            # Delta Table에 저장
-            write_deltalake(
-                self.silver_dividend_path,
-                dividend_stocks_df,
-                mode=mode,
-                partition_by=["date", "sector"],  # 날짜와 섹터별 파티셔닝
-                engine="pyarrow"
-            )
-            
-            logger.info(f"✅ 배당주 테이블 저장 완료: {len(dividend_stocks_df)}행")
-            logger.info(f"📍 저장 위치: {self.silver_dividend_path}")
-        else:
-            logger.warning("배당주 데이터가 없습니다.")
+        logger.info(f"✅ Silver 배당 지표 저장 완료: {len(metrics_df)}행")
+        logger.info(f"📍 저장 위치: {self.silver_dividend_metrics_path}")
     
-    def analyze_dividend_stocks(self, unified_df: pd.DataFrame):
-        """배당주 분석 (pandas 기반)"""
-        logger.info(f"\n📈 배당주 분석 결과:")
+    def analyze_dividend_metrics(self, metrics_df: pd.DataFrame):
+        """배당 지표 분석"""
+        logger.info(f"\n📈 배당 지표 분석 결과:")
         
-        dividend_stocks = unified_df[unified_df['is_dividend_stock'] == True]
+        dividend_stocks = metrics_df[metrics_df['dividend_ttm'] > 0]
         
         if dividend_stocks.empty:
             logger.info("배당주가 없습니다.")
             return
         
-        # 섹터별 배당주 분포
-        sector_dist = dividend_stocks.groupby('sector').size().sort_values(ascending=False)
-        logger.info(f"\n 섹터별 배당주 분포:")
-        for sector, count in sector_dist.head(10).items():
-            logger.info(f"  {sector}: {count}개")
+        # 배당수익률 분포
+        logger.info(f"\n📊 배당수익률 분포:")
+        logger.info(f"  평균: {dividend_stocks['dividend_yield_ttm'].mean():.2f}%")
+        logger.info(f"  중간값: {dividend_stocks['dividend_yield_ttm'].median():.2f}%")
+        logger.info(f"  최대값: {dividend_stocks['dividend_yield_ttm'].max():.2f}%")
+        logger.info(f"  최소값: {dividend_stocks['dividend_yield_ttm'].min():.2f}%")
+        
+        # 배당수익률 구간별 분포
+        bins = [0, 1, 2, 3, 5, 10, float('inf')]
+        labels = ['0-1%', '1-2%', '2-3%', '3-5%', '5-10%', '10%+']
+        dividend_stocks['yield_range'] = pd.cut(dividend_stocks['dividend_yield_ttm'], bins=bins, labels=labels, right=False)
+        
+        logger.info(f"\n📊 배당수익률 구간별 분포:")
+        yield_dist = dividend_stocks['yield_range'].value_counts().sort_index()
+        for range_label, count in yield_dist.items():
+            logger.info(f"  {range_label}: {count}개")
+        
+        # 배당 횟수 분포
+        logger.info(f"\n📊 연간 배당 횟수 분포:")
+        div_count_dist = dividend_stocks['div_count_1y'].value_counts().sort_index()
+        for count, freq in div_count_dist.items():
+            logger.info(f"  {count}회: {freq}개 종목")
         
         # 배당수익률 상위 10개
-        top_dividend = dividend_stocks.nlargest(10, 'dividend_yield_percent')[
-            ['ticker', 'company_name', 'dividend_yield_percent', 'sector']
-        ]
+        top_dividend = dividend_stocks.nlargest(10, 'dividend_yield_ttm')
         logger.info(f"\n💰 배당수익률 상위 10개:")
-        for _, row in top_dividend.iterrows():
-            logger.info(f"  {row['ticker']} ({row['company_name'][:30]}): {row['dividend_yield_percent']:.2f}% - {row['sector']}")
-        
-        # 배당수익률 통계
-        logger.info(f"\n📊 배당수익률 통계:")
-        logger.info(f"  평균: {dividend_stocks['dividend_yield_percent'].mean():.2f}%")
-        logger.info(f"  중간값: {dividend_stocks['dividend_yield_percent'].median():.2f}%")
-        logger.info(f"  최대값: {dividend_stocks['dividend_yield_percent'].max():.2f}%")
-        logger.info(f"  최소값: {dividend_stocks['dividend_yield_percent'].min():.2f}%")
+        for i, (_, row) in enumerate(top_dividend.iterrows(), 1):
+            last_div = row['last_div_date'].strftime('%Y-%m-%d') if pd.notna(row['last_div_date']) else 'N/A'
+            logger.info(f"  {i:2d}. {row['ticker']}: {row['dividend_yield_ttm']:.2f}% "
+                       f"(TTM: ${row['dividend_ttm']:.2f}, 횟수: {row['div_count_1y']}회, "
+                       f"최근: {last_div})")
     
     def run_silver_processing(self, target_date: Optional[date] = None):
-        """Silver Layer 전체 처리 실행"""
+        """Silver Layer 전체 처리 실행 (권장 구조)"""
         if target_date is None:
-            target_date = date.today()
+            target_date = datetime.now().date() - timedelta(days=1)
         
         logger.info("=" * 80)
-        logger.info(f" Silver Layer 처리 시작")
+        logger.info(" Silver Layer 처리 시작 (권장 구조)")
         logger.info("=" * 80)
         logger.info(f" 처리 날짜: {target_date}")
         
         try:
-            # 1. Bronze Layer 데이터 로드
-            logger.info(f"\n1️⃣ Bronze Layer 데이터 로드...")
-            price_df, dividend_df = self.load_bronze_data(target_date)
+            # 1. Bronze Layer 원천 데이터 로드
+            logger.info(f"\n1️⃣ Bronze Layer 원천 데이터 로드...")
+            price_df = self.load_bronze_price_data(target_date)
+            dividend_events_df = self.load_bronze_dividend_events(target_date, lookback_days=365)
             
-            # 2. 통합 테이블 생성
-            logger.info(f"\n2️⃣ 통합 테이블 생성...")
-            unified_df = self.create_unified_table(price_df, dividend_df)
+            # 2. 배당 지표 계산 (Silver Layer 핵심)
+            logger.info(f"\n2️⃣ 배당 지표 계산 (Silver)...")
+            metrics_df = self.build_dividend_metrics_daily(price_df, dividend_events_df, target_date)
             
-            # 3. 데이터 저장
-            logger.info(f"\n3️⃣ 데이터 저장...")
-            self.save_unified_data(unified_df, target_date)
+            # 3. Silver Layer 저장
+            logger.info(f"\n3️⃣ Silver Layer 저장...")
+            self.save_dividend_metrics_to_delta(metrics_df, target_date)
             
-            # 4. 배당주 분석
-            logger.info(f"\n4️⃣ 배당주 분석...")
-            self.analyze_dividend_stocks(unified_df)
+            # 4. 배당 지표 분석
+            logger.info(f"\n4️⃣ 배당 지표 분석...")
+            self.analyze_dividend_metrics(metrics_df)
             
             # 5. 최종 요약
             logger.info("\n" + "=" * 80)
             logger.info("📈 Silver Layer 처리 결과 요약")
             logger.info("=" * 80)
             logger.info(f" 처리 날짜: {target_date}")
-            logger.info(f"📊 전체 종목 수: {unified_df['ticker'].nunique()}개")
-            logger.info(f"💰 배당주 종목 수: {unified_df['is_dividend_stock'].sum()}개")
-            logger.info(f" 저장된 Delta Table:")
-            logger.info(f"  - {self.silver_unified_path} (통합 테이블)")
-            logger.info(f"  - {self.silver_dividend_path} (배당주 테이블)")
+            logger.info(f"📊 전체 종목 수: {len(metrics_df)}개")
+            logger.info(f"📊 배당주 종목 수: {len(metrics_df[metrics_df['dividend_ttm'] > 0])}개")
+            logger.info(f" 저장된 Silver Delta Table:")
+            logger.info(f"  - {self.silver_dividend_metrics_path}")
             logger.info("=" * 80)
             
         except Exception as e:
             logger.error(f"❌ Silver Layer 처리 실패: {e}")
-            # 수정: 일관성 있는 에러 메시지로 예외 재발생
             raise Exception(f"Silver Layer 처리 실패: {e}") from e
 
 def main():
@@ -244,16 +287,6 @@ def main():
     gcs_bucket = os.getenv("GCS_BUCKET", "your-stock-dashboard-bucket")
     
     silver_layer = SilverLayerDelta(gcs_bucket=gcs_bucket)
-    
-    try:
-        silver_layer.run_silver_processing()
-    except Exception as e:
-        logger.error(f"❌ 실행 실패: {e}")
-        raise
-
-if __name__ == "__main__":
-    main()
-
     
     try:
         silver_layer.run_silver_processing()

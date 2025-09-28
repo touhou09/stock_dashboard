@@ -4,8 +4,13 @@
 
 ### ✅ 완료된 구현
 
-#### Bronze Layer 구현
-- **파일**: `bronze_layer.py`
+#### Bronze Layer 구현 (모듈화 완료)
+- **파일 구조**: 
+  - `bronze_layer.py` - 메인 조율 클래스
+  - `data_collectors.py` - 데이터 수집 모듈
+  - `data_storage.py` - 데이터 저장 모듈
+  - `data_validators.py` - 데이터 검증 모듈
+  - `bronze_layer_delta.py` - 호환성 유지용 래퍼
 - **기술 스택**: Delta Lake + PyArrow + Google Cloud Storage
 - **구현 기능**:
   - Wikipedia 기반 S&P 500 종목 리스트 자동 수집
@@ -15,9 +20,11 @@
   - ACID 트랜잭션, 타임트래블, 스키마 진화 지원
   - 403 오류 우회 및 재시도 메커니즘
   - API 제한 고려한 딜레이 처리
+  - **🆕 Backfill 기능**: 누락된 데이터 자동 보완
+  - **🆕 모듈화 구조**: 기능별 분리로 유지보수성 향상
 
 #### Silver Layer 구현
-- **파일**: `silver_layer.py`
+- **파일**: `silver_layer_delta.py`
 - **기술 스택**: Delta Lake + PyArrow + Google Cloud Storage
 - **구현 기능**:
   - Bronze Layer Delta Table 데이터 로드 및 통합
@@ -28,11 +35,11 @@
   - 파티셔닝을 통한 성능 최적화
 
 #### 테스트 스크립트
-- **파일**: `test_bronze_layer.py`, `test_silver_layer.py`, `test_silver_simple.py`
+- **파일**: `test_bronze_layer.py`, `test_bronze_layer_delta.py`, `test_silver_layer.py`
 - **기능**: 
   - Bronze Layer 전체 데이터 수집 테스트
   - Silver Layer 데이터 정제 및 분석 테스트
-  - 간단한 CSV 기반 테스트
+  - 모듈별 단위 테스트
 
 ### 현재 파일 구조
 stock_dashboard/
@@ -195,3 +202,49 @@ stock_dashboard/
 1. **단기 목표**: Gold Layer BigQuery BigLake View 기반 분석 시스템
 2. **중기 목표**: 실시간 모니터링 및 알림 시스템
 3. **장기 목표**: ML 파이프라인 및 예측 모델 구축
+
+## 🔧 분리된 Bronze Layer 구조 설명
+
+### 📁 새로운 모듈 구조
+
+기존의 단일 파일 `bronze_layer_delta.py`를 다음과 같이 기능별로 분리했습니다:
+
+```
+stock_dashboard/
+├── data_collectors.py      # 데이터 수집 담당
+├── data_storage.py         # 데이터 저장 담당  
+├── data_validators.py      # 데이터 검증 담당
+├── bronze_layer.py         # 메인 조율 클래스
+└── bronze_layer_delta.py   # 호환성 유지용 래퍼
+```
+
+### 🎯 각 모듈의 역할
+
+#### 1. **`data_collectors.py`** - 데이터 수집 전문
+- **`SP500Collector`**: Wikipedia에서 S&P 500 종목 리스트 수집
+- **`PriceDataCollector`**: yfinance API를 통한 가격 데이터 수집
+- **`DividendDataCollector`**: 배당 이벤트 데이터 수집
+- **장점**: API 호출 로직과 재시도 메커니즘을 독립적으로 관리
+
+#### 2. **`data_storage.py`** - 저장소 관리 전문
+- **`DeltaStorageManager`**: Delta Lake 테이블 저장 및 관리
+- **기능**: 중복 데이터 체크, 파티셔닝, GCS 연동
+- **장점**: 저장 로직을 독립적으로 테스트하고 수정 가능
+
+#### 3. **`data_validators.py`** - 데이터 품질 관리
+- **`DataValidator`**: 가격/배당 데이터 검증
+- **`BackfillValidator`**: Backfill 관련 검증 및 날짜 관리
+- **장점**: 데이터 품질 규칙을 중앙 집중식으로 관리
+
+#### 4. **`bronze_layer.py`** - 메인 조율자
+- **`BronzeLayer`**: 전체 파이프라인 조율
+- **기능**: 일일 수집, Backfill, 스마트 Backfill
+- **장점**: 각 모듈을 조합하여 비즈니스 로직 구현
+
+### 🚀 분리된 구조의 장점
+
+1. **🔧 유지보수성**: 각 모듈을 독립적으로 수정 가능
+2. **🧪 테스트 용이성**: 개별 모듈 단위 테스트 가능
+3. **♻️ 재사용성**: 다른 프로젝트에서 모듈 재사용 가능
+4. **👥 협업 효율성**: 팀원별로 다른 모듈 담당 가능
+5. **📈 확장성**: 새로운 데이터 소스나 저장소 쉽게 추가
