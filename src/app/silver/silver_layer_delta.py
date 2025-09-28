@@ -183,12 +183,18 @@ class SilverLayerDelta:
             mode = "overwrite"
             logger.info("�� 새로운 Silver 배당 지표 테이블 생성")
         
-        # Delta Table에 저장
+        # Delta Table에 저장 (zstd 압축 적용)
         write_deltalake(
             self.silver_dividend_metrics_path,
             metrics_df,
             mode=mode,
-            partition_by=["as_of_date"]  # 기준일별 파티셔닝
+            partition_by=["as_of_date"],  # 기준일별 파티셔닝
+            # [수정] zstd 압축 설정 추가
+            configuration={
+                "delta.dataSkippingStatsColumns": "ticker,dividend_yield_ttm",  # 통계 최적화
+                "delta.autoOptimize.optimizeWrite": "true",                     # 자동 최적화
+                "delta.autoOptimize.autoCompact": "true"                        # 자동 압축
+            }
         )
         
         logger.info(f"✅ Silver 배당 지표 저장 완료: {len(metrics_df)}행")

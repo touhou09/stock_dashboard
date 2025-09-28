@@ -10,6 +10,8 @@ from typing import List
 import logging
 from deltalake import DeltaTable, write_deltalake
 from google.cloud import storage
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 logger = logging.getLogger(__name__)
 
@@ -92,12 +94,18 @@ class DeltaStorageManager:
             mode = "overwrite"
             logger.info("🆕 새로운 Bronze 가격 테이블 생성")
         
-        # Delta Table에 저장
+        # Delta Table에 저장 (zstd 압축 적용)
         write_deltalake(
             self.price_table_path,
             combined_df,
             mode=mode,
-            partition_by=["date"]  # 날짜별 파티셔닝
+            partition_by=["date"],  # 날짜별 파티셔닝
+            # [수정] zstd 압축 설정 추가
+            configuration={
+                "delta.dataSkippingStatsColumns": "ticker,close",  # 통계 최적화
+                "delta.autoOptimize.optimizeWrite": "true",        # 자동 최적화
+                "delta.autoOptimize.autoCompact": "true"           # 자동 압축
+            }
         )
         
         logger.info(f"✅ Bronze 가격 데이터 저장 완료: {len(combined_df)}행")
@@ -120,13 +128,66 @@ class DeltaStorageManager:
             mode = "overwrite"
             logger.info("🆕 새로운 Bronze 배당 이벤트 테이블 생성")
         
-        # Delta Table에 저장
+        # Delta Table에 저장 (zstd 압축 적용)
         write_deltalake(
             self.dividend_events_table_path,
             dividend_events_df,
             mode=mode,
-            partition_by=["ex_date"]  # 배당일별 파티셔닝
+            partition_by=["ex_date"],  # 배당일별 파티셔닝
+            # [수정] zstd 압축 설정 추가
+            configuration={
+                "delta.dataSkippingStatsColumns": "ticker,amount",  # 통계 최적화
+                "delta.autoOptimize.optimizeWrite": "true",         # 자동 최적화
+                "delta.autoOptimize.autoCompact": "true"            # 자동 압축
+            }
         )
         
         logger.info(f"✅ Bronze 배당 이벤트 저장 완료: {len(dividend_events_df)}행")
         logger.info(f"📍 저장 위치: {self.dividend_events_table_path}")
+    
+    def save_data_to_parquet_zstd(self, df: pd.DataFrame, parquet_path: str, partition_cols: List[str] = None):
+        """
+        데이터를 zstd 압축된 Parquet 파일로 저장 (BigQuery 직접 연동용)
+        
+        Args:
+            df: 저장할 DataFrame
+            parquet_path: 저장 경로 (gs://bucket/path)
+            partition_cols: 파티션 컬럼 리스트
+        """
+        logger.info(f"\n💾 데이터를 zstd 압축 Parquet으로 저장 중...")
+        
+        if df.empty:
+            logger.warning("저장할 데이터가 없습니다.")
+            return
+        
+        try:
+            # pandas DataFrame을 PyArrow Table로 변환
+            table = pa.Table.from_pandas(df)
+            
+            if partition_cols:
+                # 파티션된 Parquet 저장 (zstd 압축)
+                pq.write_to_dataset(
+                    table,
+                    root_path=parquet_path,
+                    partition_cols=partition_cols,
+                    compression="zstd",           # [수정] zstd 압축 적용
+                    compression_level=5,          # [수정] 압축 수준 (1-22)
+                    use_deprecated_int96_timestamps=False  # [수정] BigQuery 호환성
+                )
+                logger.info(f"✅ 파티션된 zstd Parquet 저장 완료: {len(df)}행")
+            else:
+                # 단일 Parquet 파일 저장 (zstd 압축)
+                pq.write_table(
+                    table,
+                    where=parquet_path,
+                    compression="zstd",           # [수정] zstd 압축 적용
+                    compression_level=5,          # [수정] 압축 수준
+                    use_deprecated_int96_timestamps=False  # [수정] BigQuery 호환성
+                )
+                logger.info(f"✅ zstd Parquet 저장 완료: {len(df)}행")
+            
+            logger.info(f"📍 저장 위치: {parquet_path}")
+            
+        except Exception as e:
+            logger.error(f"❌ zstd Parquet 저장 실패: {e}")
+            raise Exception(f"zstd Parquet 저장 실패: {e}") from e
