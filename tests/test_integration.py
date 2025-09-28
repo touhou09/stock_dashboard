@@ -12,8 +12,8 @@ import os
 # 프로젝트 루트를 Python 경로에 추가
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from bronze_layer_delta import BronzeLayerDelta
-from silver_layer_delta import SilverLayerDelta
+from src.app.bronze.bronze_layer_delta import BronzeLayerDelta
+from src.app.silver.silver_layer_delta import SilverLayerDelta
 
 class TestIntegration:
     """통합 테스트 클래스"""

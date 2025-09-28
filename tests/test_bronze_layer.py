@@ -12,10 +12,10 @@ import os
 # 프로젝트 루트를 Python 경로에 추가
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from bronze_layer import BronzeLayer
-from data_collectors import SP500Collector, PriceDataCollector, DividendDataCollector
-from data_storage import DeltaStorageManager
-from data_validators import DataValidator, BackfillValidator
+from src.app.bronze.bronze_layer import BronzeLayer
+from src.utils.data_collectors import SP500Collector, PriceDataCollector, DividendDataCollector
+from src.utils.data_storage import DeltaStorageManager
+from src.utils.data_validators import DataValidator, BackfillValidator
 
 class TestSP500Collector:
     """SP500Collector 클래스 테스트"""

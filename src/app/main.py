@@ -12,8 +12,8 @@ from dotenv import load_dotenv
 sys.path.insert(0, '/opt/app')
 
 # 모듈 import
-from bronze_layer_orchestrator import BronzeLayerOrchestrator
-from silver_layer_delta import SilverLayerDelta
+from .bronze.bronze_layer_orchestrator import BronzeLayerOrchestrator
+from .silver.silver_layer_delta import SilverLayerDelta
 
 # .env 파일 로드
 load_dotenv()

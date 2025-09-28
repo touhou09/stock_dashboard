@@ -4,7 +4,7 @@ Bronze Layer Delta Lake 기반 관리 클래스 - 원천 데이터만 저장
 """
 
 # 새로운 모듈 구조 import
-from bronze_layer import BronzeLayer
+from .bronze_layer import BronzeLayer
 
 # 기존 클래스명과의 호환성을 위한 별칭
 BronzeLayerDelta = BronzeLayer

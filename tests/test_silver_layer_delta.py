@@ -12,7 +12,7 @@ import os
 # 프로젝트 루트를 Python 경로에 추가
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from silver_layer_delta import SilverLayerDelta
+from src.app.silver.silver_layer_delta import SilverLayerDelta
 
 class TestSilverLayerDelta:
     """SilverLayerDelta 클래스 테스트"""
