@@ -3,16 +3,24 @@ name: Build anything
 on:
   workflow_call:
     inputs:
-      # [수정] build_group 입력 제거
+      build_group:
+        description: 'Github runners tag'
+        type: string
+        required: false
+        default: self-hosted
       image:
         description: 'Docker image name'
         type: string
         required: true
       path:
-        description: 'Path to Docker context (folder containing Dockerfile)'
+        description: 'Path to Dockerfile'
         type: string
         required: true
-      # [수정] build_timeout 입력 제거(잡 옵션으로 통일)
+      build_timeout:
+        description: 'Build timeout minutes'
+        type: number
+        required: false
+        default: 3600
     secrets:
       DOCKERHUB_USERNAME:
         required: true
@@ -21,8 +29,8 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest              # [수정] 러너 그룹 대신 GitHub 호스티드 기본값
-    timeout-minutes: 60                 # [수정] 입력 대신 고정(필요시 숫자만 조정)
+    runs-on:
+      group: ${{ inputs.build_group }}
     outputs:
       image_version: ${{ steps.meta.outputs.version }}
       image_id: ${{ steps.build_push.outputs.imageid }}
@@ -30,24 +38,19 @@ jobs:
       commit_hash: ${{ steps.commit_info.outputs.hash }}
       author_name: ${{ steps.commit_info.outputs.author_name }}
       author_email: ${{ steps.commit_info.outputs.author_email }}
-      # [수정] timeout-minutes 출력 제거
-
+      timeout-minutes: ${{ inputs.build_timeout }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ inputs.image }}
           flavor: |
-            latest=true
+            latest=false                                   # [수정] latest 태그 중지
           tags: |
-            type=raw,value={{date 'YYYYMMDD.HHmmss' tz='Asia/Seoul'}}-{{sha}},enable={{is_default_branch}}
+            type=raw,event=tag,value={{tag}}              # [수정] Git 태그 그대로 사용
             type=match,event=tag,pattern=v\d+.\d+.\d+.*
             type=match,event=tag,pattern=20[0-9][0-9]-[0-1][0-9]-[0-3][0-9].*
-
       - name: Set up QEMU
         id: qemu
         uses: docker/setup-qemu-action@v3
@@ -62,20 +65,8 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-      - name: Build and push
-        id: build_push
-        uses: docker/build-push-action@v5
-        with:
-          context: ${{ inputs.path }}
-          # [수정] file 옵션 제거 → Dockerfile 자동 탐지(Dockerfile/dockerfile)
-          platforms: linux/amd64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Get head commit information
         id: commit_info
         run: |
@@ -83,3 +74,16 @@ jobs:
           echo "hash=$(git log -n 1 --format=%H | head -n 1)" >> $GITHUB_OUTPUT
           echo "author_name=$(git log -n 1 --format=%an | head -n 1)" >> $GITHUB_OUTPUT
           echo "author_email=$(git log -n 1 --format=%ae | head -n 1)" >> $GITHUB_OUTPUT
+      - name: Build and push
+        id: build_push
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ inputs.path }}
+          platforms: linux/amd64
+          file: ${{ inputs.path }}/dockerfile
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

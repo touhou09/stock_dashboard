@@ -1,16 +1,36 @@
 name: Build Stock Dashboard
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - main
     tags:
       - v[0-9]+.[0-9]+.[0-9]+*
       - 20[0-9][0-9]-[0-1][0-9]-[0-3][0-9]*
 
 jobs:
+  guard:                                   # [수정] 추가: main/master 포함 여부 가드
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                   # [수정]
+      - name: Verify tag points to main/master
+        run: |
+          set -e
+          git fetch origin main --depth=1 || true
+          git fetch origin master --depth=1 || true
+          if git show-ref --verify --quiet refs/remotes/origin/main && git merge-base --is-ancestor "${GITHUB_SHA}" "origin/main"; then
+            exit 0
+          fi
+          if git show-ref --verify --quiet refs/remotes/origin/master && git merge-base --is-ancestor "${GITHUB_SHA}" "origin/master"; then
+            exit 0
+          fi
+          echo "Tag is not on main/master; skipping."
+          exit 78                          # [수정] 스킵(중립 종료)
+
   build-and-push:
+    needs: guard                           # [수정] guard 통과 시에만 실행
+    if: needs.guard.result == 'success'    # [수정]
     uses: ./.github/workflows/dockerfiles.yaml
     with:
       image: touhou09/stockprocessing
