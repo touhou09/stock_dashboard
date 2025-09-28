@@ -7,7 +7,7 @@ on:
         description: 'Github runners tag'
         type: string
         required: false
-        default: self-hosted
+        default: ubuntu-22.04
       image:
         description: 'Docker image name'
         type: string
@@ -29,8 +29,7 @@ on:
 
 jobs:
   build:
-    runs-on:
-      group: ${{ inputs.build_group }}
+    runs-on: ${{ inputs.build_group }}
     outputs:
       image_version: ${{ steps.meta.outputs.version }}
       image_id: ${{ steps.build_push.outputs.imageid }}
