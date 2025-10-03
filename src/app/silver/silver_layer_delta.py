@@ -6,11 +6,10 @@ Bronze Layer의 원천 데이터를 기반으로 배당 지표를 계산하여 �
 
 import pandas as pd
 from datetime import datetime, timedelta, date, timezone
-from typing import Optional, List, Tuple
+from typing import Optional
 import logging
-from deltalake import DeltaTable, write_deltalake
+from deltalake import DeltaTable, write_deltalake, WriterProperties
 import pyarrow as pa
-from google.cloud import storage
 from dotenv import load_dotenv
 
 # .env 파일 로드
@@ -36,11 +35,11 @@ class SilverLayerDelta:
         self.bronze_path = bronze_path
         self.silver_path = silver_path
         
-        # Bronze Layer Delta Table 경로 (권장 구조)
+        # Bronze Layer Delta Table 경로
         self.bronze_price_path = f"gs://{gcs_bucket}/{bronze_path}/bronze_price_daily"
         self.bronze_dividend_events_path = f"gs://{gcs_bucket}/{bronze_path}/bronze_dividend_events"
         
-        # Silver Layer Delta Table 경로 (권장 구조)
+        # Silver Layer Delta Table 경로
         self.silver_dividend_metrics_path = f"gs://{gcs_bucket}/{silver_path}/silver_dividend_metrics_daily"
     
     def load_bronze_price_data(self, target_date: date) -> pd.DataFrame:
@@ -48,16 +47,18 @@ class SilverLayerDelta:
         logger.info(f" Bronze Layer 가격 데이터 로드 중... (날짜: {target_date})")
         
         try:
-            # Delta Table에서 데이터 로드
             price_delta = DeltaTable(self.bronze_price_path)
             price_df = price_delta.to_pandas()
             
             # 날짜 필터링
-            price_df['date'] = pd.to_datetime(price_df['date']).dt.date
-            price_df = price_df[price_df['date'] == target_date]
-            
-            logger.info(f"✅ 가격 데이터 로드 완료: {len(price_df)}행")
-            return price_df
+            if not price_df.empty and 'date' in price_df.columns:
+                price_df['date'] = pd.to_datetime(price_df['date']).dt.date
+                price_df = price_df[price_df['date'] == target_date]
+                logger.info(f"✅ 가격 데이터 로드 완료: {len(price_df)}행")
+                return price_df
+            else:
+                logger.warning("해당 날짜의 데이터를 찾을 수 없습니다.")
+                return pd.DataFrame(columns=['date', 'ticker', 'open', 'high', 'low', 'close', 'volume', 'adj_close', 'ingest_at'])
             
         except Exception as e:
             logger.error(f"❌ Bronze 가격 데이터 로드 실패: {e}")
@@ -103,6 +104,13 @@ class SilverLayerDelta:
         """
         logger.info(f"\n📊 배당 지표 계산 중... (기준일: {target_date})")
         
+        # 가격 데이터가 없는 경우 빈 DataFrame 반환
+        if price_df.empty:
+            logger.warning("가격 데이터가 없어 빈 배당 지표 반환")
+            return pd.DataFrame(columns=['date', 'ticker', 'last_price', 'market_cap', 
+                                       'dividend_ttm', 'dividend_yield_ttm', 'div_count_1y', 
+                                       'last_div_date', 'updated_at'])
+        
         metrics_list = []
         
         for _, price_row in price_df.iterrows():
@@ -117,7 +125,7 @@ class SilverLayerDelta:
             if ticker_dividends.empty:
                 # 배당 이벤트가 없는 경우
                 metrics = {
-                    'as_of_date': target_date,
+                    'date': target_date,
                     'ticker': ticker,
                     'last_price': last_price,
                     'market_cap': 0,  # Bronze에 없으므로 0으로 설정
@@ -135,7 +143,7 @@ class SilverLayerDelta:
                 last_div_date = ticker_dividends['ex_date'].max()
                 
                 metrics = {
-                    'as_of_date': target_date,
+                    'date': target_date,
                     'ticker': ticker,
                     'last_price': last_price,
                     'market_cap': 0,  # Bronze에 없으므로 0으로 설정
@@ -174,22 +182,57 @@ class SilverLayerDelta:
         """배당 지표를 Delta Table에 저장 (Silver 스키마)"""
         logger.info(f"\n💾 배당 지표를 Silver Delta Table에 저장 중...")
         
+        # 빈 DataFrame인 경우 저장 건너뛰기
+        if metrics_df.empty:
+            logger.warning("빈 DataFrame이므로 저장을 건너뜁니다.")
+            return
+        
         try:
             # Delta Table이 존재하는지 확인
             delta_table = DeltaTable(self.silver_dividend_metrics_path)
-            mode = "append"
-            logger.info("✅ 기존 Silver 배당 지표 테이블에 데이터 추가")
+            
+            # 같은 날짜의 기존 데이터가 있는지 확인
+            existing_df = delta_table.to_pandas()
+            if not existing_df.empty and 'date' in existing_df.columns:
+                existing_df['date'] = pd.to_datetime(existing_df['date']).dt.date
+                has_existing_data = (existing_df['date'] == target_date).any()
+                
+                if has_existing_data:
+                    # 기존 데이터 삭제 후 새 데이터 추가 (덮어쓰기)
+                    logger.info(f"🔄 {target_date} 날짜의 기존 데이터를 삭제하고 새 데이터로 덮어쓰기")
+                    # 기존 데이터에서 해당 날짜 제외
+                    existing_df = existing_df[existing_df['date'] != target_date]
+                    # 기존 데이터와 새 데이터 결합
+                    if not existing_df.empty:
+                        metrics_df = pd.concat([existing_df, metrics_df], ignore_index=True)
+                    mode = "overwrite"
+                else:
+                    mode = "append"
+                    logger.info("✅ 기존 Silver 배당 지표 테이블에 데이터 추가")
+            else:
+                mode = "append"
+                logger.info("✅ 기존 Silver 배당 지표 테이블에 데이터 추가")
+                
         except Exception:
             mode = "overwrite"
-            logger.info("�� 새로운 Silver 배당 지표 테이블 생성")
+            logger.info("🆕 새로운 Silver 배당 지표 테이블 생성")
         
-        # Delta Table에 저장 (zstd 압축 적용)
+        # deltalake 1.0+ WriterProperties로 zstd 압축 설정
+        arrow_table = pa.Table.from_pandas(metrics_df)
+        
+        # zstd 압축 설정
+        writer_props = WriterProperties(
+            compression='ZSTD',
+            compression_level=5
+        )
+        
+        # Delta Table에 저장
         write_deltalake(
             self.silver_dividend_metrics_path,
-            metrics_df,
+            arrow_table,
             mode=mode,
-            partition_by=["as_of_date"],  # 기준일별 파티셔닝
-            # [수정] zstd 압축 설정 추가
+            partition_by=["date"],  # 날짜별 파티셔닝
+            writer_properties=writer_props,  # zstd 압축 적용
             configuration={
                 "delta.dataSkippingStatsColumns": "ticker,dividend_yield_ttm",  # 통계 최적화
                 "delta.autoOptimize.optimizeWrite": "true",                     # 자동 최적화
@@ -220,10 +263,11 @@ class SilverLayerDelta:
         # 배당수익률 구간별 분포
         bins = [0, 1, 2, 3, 5, 10, float('inf')]
         labels = ['0-1%', '1-2%', '2-3%', '3-5%', '5-10%', '10%+']
-        dividend_stocks['yield_range'] = pd.cut(dividend_stocks['dividend_yield_ttm'], bins=bins, labels=labels, right=False)
+        dividend_stocks_copy = dividend_stocks.copy()
+        dividend_stocks_copy['yield_range'] = pd.cut(dividend_stocks_copy['dividend_yield_ttm'], bins=bins, labels=labels, right=False)
         
         logger.info(f"\n📊 배당수익률 구간별 분포:")
-        yield_dist = dividend_stocks['yield_range'].value_counts().sort_index()
+        yield_dist = dividend_stocks_copy['yield_range'].value_counts().sort_index()
         for range_label, count in yield_dist.items():
             logger.info(f"  {range_label}: {count}개")
         
@@ -243,12 +287,12 @@ class SilverLayerDelta:
                        f"최근: {last_div})")
     
     def run_silver_processing(self, target_date: Optional[date] = None):
-        """Silver Layer 전체 처리 실행 (권장 구조)"""
+        """Silver Layer 전체 처리 실행"""
         if target_date is None:
             target_date = datetime.now().date() - timedelta(days=1)
         
         logger.info("=" * 80)
-        logger.info(" Silver Layer 처리 시작 (권장 구조)")
+        logger.info(" Silver Layer 처리 시작")
         logger.info("=" * 80)
         logger.info(f" 처리 날짜: {target_date}")
         

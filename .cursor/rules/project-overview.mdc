@@ -1,0 +1,35 @@
+---
+alwaysApply: true
+---
+# Stock Dashboard 프로젝트 - Medallion Architecture 기반 배당주 데이터 파이프라인
+
+## 프로젝트 개요
+- 목적: 미국 배당주 데이터와 S&P 500 데이터를 처리하는 데이터 파이프라인
+- 아키텍처: Medallion Architecture (Bronze → Silver → Gold) 적용
+- 대용량 처리: Cloud Run과 Delta Lake를 활용한 확장 가능한 구조
+- 언어: Python 3.12, uv 패키지 관리자 사용
+
+## 아키텍처 구조
+
+### Bronze Layer (원시 데이터)
+- 위치: `src/app/bronze/`
+- 기능: Wikipedia S&P 500 수집, yfinance API 가격/배당 데이터 수집
+- 저장소: Delta Lake (GCS) - ZSTD 압축 적용
+- 특징: 배치 처리 (50개씩), 증분 수집 지원, 데이터 검증
+
+### Silver Layer (정제된 데이터)
+- 위치: `src/app/silver/`
+- 기능: TTM 배당수익률, 배당 횟수, 최근 배당일 등 지표 계산
+- 저장소: Delta Lake (GCS) - 날짜별 파티셔닝
+- 특징: 자동 통계 수집, 압축 최적화
+
+### Gold Layer (분석용 뷰)
+- 계획: BigQuery View로 구현 예정
+- 목적: 직접적인 분석 및 대시보드용 데이터
+
+## 현재 상태
+- Bronze Layer: 완전 구현 및 테스트 완료
+- Silver Layer: 완전 구현 및 테스트 완료
+- Docker 배포: 이미지 빌드 및 Cloud Run 배포 준비 완료
+- Gold Layer: BigQuery View 구현 예정
+- 대시보드: 프론트엔드 구현 예정

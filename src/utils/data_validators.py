@@ -65,7 +65,7 @@ class DataValidator:
             return df
         
         # 필수 컬럼 확인
-        required_columns = ['ex_date', 'ticker', 'amount']
+        required_columns = ['ex_date', 'ticker', 'amount', 'date']
         missing_columns = [col for col in required_columns if col not in df.columns]
         if missing_columns:
             raise ValueError(f"필수 컬럼이 누락되었습니다: {missing_columns}")

@@ -109,14 +109,23 @@ class PriceDataCollector:
                     hist = hist.reset_index(drop=True)
                     
                     # 컬럼명 정규화 (Bronze 스키마)
-                    hist = hist.rename(columns={
+                    # [수정] Adj Close가 있을 때만 rename
+                    rename_dict = {
                         'Open': 'open',
                         'High': 'high', 
                         'Low': 'low',
                         'Close': 'close',
-                        'Volume': 'volume',
-                        'Adj Close': 'adj_close'
-                    })
+                        'Volume': 'volume'
+                    }
+                    
+                    if 'Adj Close' in hist.columns:
+                        rename_dict['Adj Close'] = 'adj_close'
+                    
+                    hist = hist.rename(columns=rename_dict)
+                    
+                    # [수정] adj_close가 없으면 close 값으로 대체
+                    if 'adj_close' not in hist.columns:
+                        hist['adj_close'] = hist['close']
                     
                     # ingest_at 타임스탬프 추가
                     hist['ingest_at'] = datetime.now(timezone.utc)
@@ -151,14 +160,18 @@ class PriceDataCollector:
 class DividendDataCollector:
     """배당 데이터 수집기"""
     
-    def fetch_dividend_events_for_tickers(self, tickers: List[str], since: datetime.date, until: datetime.date) -> pd.DataFrame:
+    def fetch_dividend_events_for_tickers(self, tickers: List[str], since: datetime.date, until: datetime.date, collection_date: datetime.date = None) -> pd.DataFrame:
         """
         [Bronze] yfinance 배당 이벤트를 원천 그대로 적재용 DF로 수집합니다.
         입력: tickers, since(포함), until(포함)
-        출력: columns = [ex_date, ticker, amount, ingest_at]
+        출력: columns = [ex_date, ticker, amount, date, ingest_at]
         """
         logger.info(f"\n💰 배당 이벤트 수집 중... ({since} ~ {until})")
         logger.info(f"💰 처리할 종목 수: {len(tickers)}개")
+        
+        # 수집일 설정 (기본값: 오늘)
+        if collection_date is None:
+            collection_date = datetime.now().date()
         
         rows = []
         processed_count = 0
@@ -190,6 +203,7 @@ class DividendDataCollector:
                         "ex_date": idx.date(),
                         "ticker": ticker,
                         "amount": float(amt),
+                        "date": collection_date,  # 수집일 추가
                         "ingest_at": datetime.now(timezone.utc)
                     })
                     

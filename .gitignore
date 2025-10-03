@@ -53,3 +53,7 @@ Thumbs.db
 *.delta
 data/
 logs/
+.codex/
+
+AGENTS.md
+

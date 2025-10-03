@@ -8,7 +8,7 @@ import pandas as pd
 from datetime import datetime, date
 from typing import List
 import logging
-from deltalake import DeltaTable, write_deltalake
+from deltalake import DeltaTable, write_deltalake, WriterProperties
 from google.cloud import storage
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -94,13 +94,22 @@ class DeltaStorageManager:
             mode = "overwrite"
             logger.info("🆕 새로운 Bronze 가격 테이블 생성")
         
-        # Delta Table에 저장 (zstd 압축 적용)
+        # [수정] deltalake 1.0+ WriterProperties로 zstd 압축 설정
+        arrow_table = pa.Table.from_pandas(combined_df)
+        
+        # zstd 압축 설정
+        writer_props = WriterProperties(
+            compression='ZSTD',
+            compression_level=5
+        )
+        
+        # Delta Table에 저장
         write_deltalake(
             self.price_table_path,
-            combined_df,
+            arrow_table,
             mode=mode,
             partition_by=["date"],  # 날짜별 파티셔닝
-            # [수정] zstd 압축 설정 추가
+            writer_properties=writer_props,  # [수정] zstd 압축 적용
             configuration={
                 "delta.dataSkippingStatsColumns": "ticker,close",  # 통계 최적화
                 "delta.autoOptimize.optimizeWrite": "true",        # 자동 최적화
@@ -119,6 +128,7 @@ class DeltaStorageManager:
             logger.warning("저장할 배당 이벤트가 없습니다.")
             return
         
+        
         try:
             # Delta Table이 존재하는지 확인
             delta_table = DeltaTable(self.dividend_events_table_path)
@@ -128,13 +138,22 @@ class DeltaStorageManager:
             mode = "overwrite"
             logger.info("🆕 새로운 Bronze 배당 이벤트 테이블 생성")
         
-        # Delta Table에 저장 (zstd 압축 적용)
+        # [수정] deltalake 1.0+ WriterProperties로 zstd 압축 설정
+        arrow_table = pa.Table.from_pandas(dividend_events_df)
+        
+        # zstd 압축 설정
+        writer_props = WriterProperties(
+            compression='ZSTD',
+            compression_level=5
+        )
+        
+        # Delta Table에 저장
         write_deltalake(
             self.dividend_events_table_path,
-            dividend_events_df,
+            arrow_table,
             mode=mode,
-            partition_by=["ex_date"],  # 배당일별 파티셔닝
-            # [수정] zstd 압축 설정 추가
+            partition_by=["date"],  # 날짜별 파티셔닝
+            writer_properties=writer_props,  # [수정] zstd 압축 적용
             configuration={
                 "delta.dataSkippingStatsColumns": "ticker,amount",  # 통계 최적화
                 "delta.autoOptimize.optimizeWrite": "true",         # 자동 최적화

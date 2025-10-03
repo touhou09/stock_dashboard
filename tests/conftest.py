@@ -5,10 +5,9 @@ pytest 설정 및 공통 픽스처 정의
 import pytest
 import pandas as pd
 from datetime import datetime, date, timedelta
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 import tempfile
 import os
-from typing import List, Dict, Any
 
 @pytest.fixture
 def sample_sp500_data():

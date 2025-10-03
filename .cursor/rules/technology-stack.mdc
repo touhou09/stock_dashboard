@@ -1,0 +1,54 @@
+---
+description: 기술 스택 및 실행 방법
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# 기술 스택 및 실행 방법
+
+## 기술 스택
+- 핵심: yfinance, pandas, deltalake, pyarrow, google-cloud-storage
+- 개발: uv, pytest, black, isort, flake8, mypy
+- 배포: Docker, Cloud Run, GitHub Actions
+
+## 프로젝트 구조
+- `src/app/bronze/`: Bronze Layer (완료)
+- `src/app/silver/`: Silver Layer (완료)
+- `src/utils/`: 공통 기능 모듈
+- `tests/`: 테스트 파일들 (완료)
+- `dockerfile`: Docker 설정 (완료)
+- `pyproject.toml`: 프로젝트 설정
+
+## 실행 방법
+```bash
+# 전체 데이터 수집
+uv run python -m src.app.main --mode bronze-full
+
+# Silver Layer 처리
+uv run python -m src.app.main --mode silver
+
+# 특정 날짜 처리
+uv run python -m src.app.main --mode bronze-full --date 2024-01-15
+```
+
+## 개발 도구 사용법
+```bash
+# 의존성 설치
+uv sync --dev
+
+# 코드 포맷팅
+uv run black .
+uv run isort .
+
+# 테스트 실행
+uv run pytest
+
+# 타입 체킹
+uv run mypy .
+```
+
+## 다음 단계
+1. Gold Layer BigQuery View 구현
+2. 대시보드 프론트엔드 개발
+3. Cloud Run 배포 및 모니터링 설정
+4. 데이터 품질 모니터링 강화
