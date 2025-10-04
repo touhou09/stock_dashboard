@@ -21,9 +21,11 @@ load_dotenv()
 def main():
     """메인 실행 함수"""
     parser = argparse.ArgumentParser(description="Stock Dashboard 데이터 파이프라인")
-    parser.add_argument("--mode", choices=["bronze-price", "bronze-dividend", "bronze-full", "silver"], 
+    parser.add_argument("--mode", choices=["bronze-price", "bronze-dividend", "bronze-full", "silver", "silver-backfill"], 
                        default="bronze-full", help="실행 모드")
     parser.add_argument("--date", type=str, help="처리 날짜 (YYYY-MM-DD)")
+    parser.add_argument("--start-date", type=str, help="Backfill 시작 날짜 (YYYY-MM-DD)")
+    parser.add_argument("--end-date", type=str, help="Backfill 종료 날짜 (YYYY-MM-DD)")
     
     args = parser.parse_args()
     
@@ -34,6 +36,14 @@ def main():
     target_date = None
     if args.date:
         target_date = datetime.strptime(args.date, "%Y-%m-%d").date()
+    
+    start_date = None
+    if args.start_date:
+        start_date = datetime.strptime(args.start_date, "%Y-%m-%d").date()
+    
+    end_date = None
+    if args.end_date:
+        end_date = datetime.strptime(args.end_date, "%Y-%m-%d").date()
     
     try:
         if args.mode in ["bronze-price", "bronze-dividend", "bronze-full"]:
@@ -51,6 +61,11 @@ def main():
             # Silver Layer 실행
             silver_layer = SilverLayerDelta(gcs_bucket=gcs_bucket)
             silver_layer.run_silver_processing(target_date)
+            
+        elif args.mode == "silver-backfill":
+            # Silver Layer Backfill 실행
+            silver_layer = SilverLayerDelta(gcs_bucket=gcs_bucket)
+            silver_layer.run_silver_backfill(start_date, end_date)
             
     except Exception as e:
         print(f"❌ 실행 실패: {e}")

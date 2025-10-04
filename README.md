@@ -88,6 +88,195 @@ stock_dashboard/
 - **압축 최적화**: ZSTD 압축 적용으로 저장 공간 효율성 향상
 - **자동 최적화**: Delta Lake의 autoOptimize 기능으로 성능 최적화
 
+### 🥇 Gold Layer (분석/집계용 View)
+
+#### 1. 가격 타임시리즈 베이스 (`vw_price_timeseries_base`)
+
+* **경로**: `stock-dashboard-472700.bronze_dividend_events.vw_price_timeseries_base`
+* **윈도우(기본)**: 최근 3년
+* **설명**: 일별 가격 시계열의 표준 형태. 전일 대비 수익률(종가/조정종가 기준)을 포함해 다른 뷰의 공용 베이스로 사용.
+* **스키마**:
+
+  * `date` (DATE): 거래일
+  * `ticker` (STRING): 종목 코드
+  * `open` (FLOAT64): 시가
+  * `high` (FLOAT64): 고가
+  * `low` (FLOAT64): 저가
+  * `close` (FLOAT64): 종가
+  * `adj_close` (FLOAT64): 조정종가
+  * `volume` (INT64): 거래량
+  * `ingest_at` (TIMESTAMP): 수집 시각
+  * `prev_close` (FLOAT64): 전일 종가
+  * `prev_adj_close` (FLOAT64): 전일 조정종가
+  * `ret_1d_close` (FLOAT64): 전일 대비 수익률(종가 기준)
+  * `ret_1d_adj` (FLOAT64): 전일 대비 수익률(조정종가 기준)
+
+---
+
+#### 2. 가격 타임시리즈 확장 (`vw_price_timeseries_enriched`)
+
+* **경로**: `stock-dashboard-472700.bronze_dividend_events.vw_price_timeseries_enriched`
+* **윈도우(기본)**: 최근 3년
+* **설명**: 차트/리서치에 자주 쓰는 이동평균·변동성·드로우다운을 추가한 확장 타임시리즈.
+* **스키마**:
+
+  * (베이스와 동일 필드) `date`, `ticker`, `open`, `high`, `low`, `close`, `adj_close`, `volume`, `ingest_at`, `prev_close`, `prev_adj_close`, `ret_1d_close`, `ret_1d_adj`
+  * `ma_7` (FLOAT64): 7일 이동평균(종가)
+  * `ma_30` (FLOAT64): 30일 이동평균(종가)
+  * `ma_120` (FLOAT64): 120일 이동평균(종가)
+  * `vol_30d` (FLOAT64): 30일 이동 변동성(일간 수익률 표준편차)
+  * `rolling_peak` (FLOAT64): 과거부터 현재까지의 조정종가 최고치
+  * `drawdown` (FLOAT64): 현재 조정종가의 피크 대비 낙폭 비율
+
+---
+
+#### 3. 월간 수익률 (`vw_returns_monthly`)
+
+* **경로**: `stock-dashboard-472700.bronze_dividend_events.vw_returns_monthly`
+* **윈도우(기본)**: 최근 5년
+* **설명**: 월초/월말 가격으로 계산한 월간 수익률. 막대/히트맵 차트에 적합.
+* **스키마**:
+
+  * `month` (DATE): 월(1일로 절단된 날짜)
+  * `ticker` (STRING): 종목 코드
+  * `month_open` (FLOAT64): 월의 첫 거래일 종가
+  * `month_close` (FLOAT64): 월의 마지막 거래일 종가
+  * `ret_1m` (FLOAT64): 월간 수익률 = (month_close - month_open) / month_open
+
+---
+
+#### 4. 분기 수익률 (`vw_returns_quarterly`)
+
+* **경로**: `stock-dashboard-472700.bronze_dividend_events.vw_returns_quarterly`
+* **윈도우(기본)**: 최근 3년
+* **설명**: 분기초/분기말 가격으로 계산한 QoQ 수익률.
+* **스키마**:
+
+  * `qtr` (DATE): 분기(해당 분기의 첫 달 1일)
+  * `ticker` (STRING): 종목 코드
+  * `qtr_open` (FLOAT64): 분기의 첫 거래일 종가
+  * `qtr_close` (FLOAT64): 분기의 마지막 거래일 종가
+  * `ret_qoq` (FLOAT64): 분기 수익률 = (qtr_close - qtr_open) / qtr_open
+
+---
+
+#### 5. 최신 가격 스냅샷 (`vw_price_latest_snapshot`)
+
+* **경로**: `stock-dashboard-472700.bronze_dividend_events.vw_price_latest_snapshot`
+* **윈도우(기본)**: 최신 1건(기간 제한 없음)
+* **설명**: 각 티커의 **가장 최신** 거래일(+최신 ingest)의 한 행만 제공. 대시보드 카드/랭킹 소스.
+* **스키마**:
+
+  * `date` (DATE): 최신 거래일
+  * `ticker` (STRING): 종목 코드
+  * `open`, `high`, `low`, `close`, `adj_close` (FLOAT64)
+  * `volume` (INT64)
+  * `ingest_at` (TIMESTAMP)
+
+---
+
+#### 6. 배당 지표 최신 스냅샷 (`vw_dividend_metrics_latest`)
+
+* **경로**: `stock-dashboard-472700.bronze_dividend_events.vw_dividend_metrics_latest`
+* **윈도우(기본)**: 최신 1건(메트릭/가격 모두)
+* **설명**: `silver_dividend_metrics_daily` 최신 행에 **최신 가격 스냅샷**을 조인한 요약 뷰.
+* **스키마**:
+
+  * `ticker` (STRING)
+  * `metrics_date` (DATE): 메트릭 기준일
+  * `metrics_last_price` (FLOAT64): 메트릭 산출 시점의 최근 주가
+  * `market_cap` (INT64): 시가총액(현재 0일 수 있음)
+  * `dividend_ttm` (FLOAT64): 최근 12개월 배당 총액
+  * `dividend_yield_ttm` (FLOAT64): TTM 배당수익률(%)
+  * `div_count_1y` (INT64): 연간 배당 횟수
+  * `last_div_date` (DATE): 최근 배당일
+  * `updated_at` (TIMESTAMP): 메트릭 업데이트 시각
+  * `price_date` (DATE): 최신 가격 기준일
+  * `latest_close` (FLOAT64): 최신 종가
+  * `latest_adj_close` (FLOAT64): 최신 조정종가
+
+---
+
+#### 7. 배당 캘린더(2년) (`vw_dividend_calendar_2y`)
+
+* **경로**: `stock-dashboard-472700.bronze_dividend_events.vw_dividend_calendar_2y`
+* **윈도우(기본)**: 최근 2년
+* **설명**: 최근 2년의 배당 이벤트 일정(테이블/캘린더 위젯용).
+* **스키마**:
+
+  * `ex_date` (DATE): 배당 지급일(실제 지급 기준일)
+  * `ticker` (STRING)
+  * `amount` (FLOAT64): 배당금액(주당)
+  * `collect_date` (DATE): 수집일(원본의 `date`)
+  * `ingest_at` (TIMESTAMP): 수집 시각
+
+---
+
+#### 8. 배당수익률 랭킹(일자별, 2년) (`vw_dividend_yield_rank_daily`)
+
+* **경로**: `stock-dashboard-472700.bronze_dividend_events.vw_dividend_yield_rank_daily`
+* **윈도우(기본)**: 최근 2년
+* **설명**: 날짜별 배당수익률 내림차순 랭킹. Top-N 필터/랭킹 테이블에 바로 사용.
+* **스키마**:
+
+  * `date` (DATE)
+  * `ticker` (STRING)
+  * `last_price` (FLOAT64)
+  * `dividend_ttm` (FLOAT64)
+  * `dividend_yield_ttm` (FLOAT64)
+  * `div_count_1y` (INT64)
+  * `last_div_date` (DATE)
+  * `updated_at` (TIMESTAMP)
+  * `yield_rank` (INT64): 일자 내 배당수익률 순위(1=최상)
+
+---
+
+#### 9. 시장 요약(2년) (`vw_market_daily_summary`)
+
+* **경로**: `stock-dashboard-472700.bronze_dividend_events.vw_market_daily_summary`
+* **윈도우(기본)**: 최근 2년
+* **설명**: 시장의 광의적 브레드스(상승/하락/보합 수, 평균 수익률, 총 거래량) 일자 요약.
+* **스키마**:
+
+  * `date` (DATE)
+  * `up_cnt` (INT64): 상승 종목 수(일간 수익률 > 0)
+  * `down_cnt` (INT64): 하락 종목 수(일간 수익률 < 0)
+  * `flat_cnt` (INT64): 보합 종목 수(일간 수익률 = 0)
+  * `avg_ret_1d` (FLOAT64): 평균 일간 수익률
+  * `total_volume` (INT64): 총 거래량
+
+---
+
+#### 10. 일자별 Top Movers(180일) (`vw_top_movers_daily`)
+
+* **경로**: `stock-dashboard-472700.bronze_dividend_events.vw_top_movers_daily`
+* **윈도우(기본)**: 최근 180일
+* **설명**: 날짜별 수익률 상/하위 종목을 빠르게 선별하기 위한 랭킹 전처리.
+* **스키마**:
+
+  * `date` (DATE)
+  * `ticker` (STRING)
+  * `close` (FLOAT64)
+  * `adj_close` (FLOAT64)
+  * `ret_1d_adj` (FLOAT64): 일간 수익률(조정종가 기준)
+  * `rn_desc` (INT64): 일자 내 **상승** 순위(1=최상승)
+  * `rn_asc` (INT64): 일자 내 **하락** 순위(1=최하락)
+
+---
+
+#### 11. 팩터: 배당수익률 분위수 vs 전방 1M 수익률(3년) (`vw_factor_dividend_vs_fwd_return`)
+
+* **경로**: `stock-dashboard-472700.bronze_dividend_events.vw_factor_dividend_vs_fwd_return`
+* **윈도우(기본)**: 최근 3년
+* **설명**: 배당수익률을 일자별 5분위로 나누고(1=고배당), 21영업일 전방 수익률 평균을 비교하는 팩터 스터디용 집계.
+* **스키마**:
+
+  * `date` (DATE)
+  * `dy_quintile` (INT64): 배당수익률 분위수(1~5, 1이 높은 그룹)
+  * `avg_fwd_ret_21` (FLOAT64): 전방 21영업일 평균 수익률
+  * `n` (INT64): 각 분위수의 표본 종목 수
+
+
 ## 🚀 설치 및 실행
 
 ### 1. uv 설치

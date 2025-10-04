@@ -6,7 +6,7 @@ Bronze Layer의 원천 데이터를 기반으로 배당 지표를 계산하여 �
 
 import pandas as pd
 from datetime import datetime, timedelta, date, timezone
-from typing import Optional
+from typing import Optional, List
 import logging
 from deltalake import DeltaTable, write_deltalake, WriterProperties
 import pyarrow as pa
@@ -285,6 +285,125 @@ class SilverLayerDelta:
             logger.info(f"  {i:2d}. {row['ticker']}: {row['dividend_yield_ttm']:.2f}% "
                        f"(TTM: ${row['dividend_ttm']:.2f}, 횟수: {row['div_count_1y']}회, "
                        f"최근: {last_div})")
+    
+    def get_available_bronze_dates(self) -> List[date]:
+        """Bronze Layer에서 사용 가능한 모든 날짜 조회"""
+        logger.info("🔍 Bronze Layer 사용 가능한 날짜 조회 중...")
+        
+        try:
+            price_delta = DeltaTable(self.bronze_price_path)
+            price_df = price_delta.to_pandas()
+            
+            if not price_df.empty and 'date' in price_df.columns:
+                price_df['date'] = pd.to_datetime(price_df['date']).dt.date
+                unique_dates = sorted(price_df['date'].unique())
+                logger.info(f"✅ Bronze Layer 날짜 조회 완료: {len(unique_dates)}개 날짜")
+                return unique_dates
+            else:
+                logger.warning("Bronze Layer에서 날짜 데이터를 찾을 수 없습니다.")
+                return []
+                
+        except Exception as e:
+            logger.error(f"❌ Bronze Layer 날짜 조회 실패: {e}")
+            return []
+    
+    def get_existing_silver_dates(self) -> List[date]:
+        """Silver Layer에서 이미 처리된 날짜 조회"""
+        logger.info("🔍 Silver Layer 기존 처리 날짜 조회 중...")
+        
+        try:
+            silver_delta = DeltaTable(self.silver_dividend_metrics_path)
+            silver_df = silver_delta.to_pandas()
+            
+            if not silver_df.empty and 'date' in silver_df.columns:
+                silver_df['date'] = pd.to_datetime(silver_df['date']).dt.date
+                unique_dates = sorted(silver_df['date'].unique())
+                logger.info(f"✅ Silver Layer 기존 날짜 조회 완료: {len(unique_dates)}개 날짜")
+                return unique_dates
+            else:
+                logger.info("Silver Layer에 기존 데이터가 없습니다.")
+                return []
+                
+        except Exception as e:
+            logger.info(f"Silver Layer 기존 데이터 조회 실패 (테이블 없음): {e}")
+            return []
+    
+    def run_silver_backfill(self, start_date: Optional[date] = None, end_date: Optional[date] = None):
+        """Silver Layer Backfill 실행 - 여러 날짜 일괄 처리"""
+        logger.info("=" * 80)
+        logger.info(" Silver Layer Backfill 처리 시작")
+        logger.info("=" * 80)
+        
+        # 1. Bronze Layer에서 사용 가능한 날짜 조회
+        logger.info(f"\n1️⃣ Bronze Layer 사용 가능한 날짜 조회...")
+        available_dates = self.get_available_bronze_dates()
+        
+        if not available_dates:
+            logger.error("❌ Bronze Layer에 처리할 날짜가 없습니다.")
+            return
+        
+        # 2. Silver Layer에서 이미 처리된 날짜 조회
+        logger.info(f"\n2️⃣ Silver Layer 기존 처리 날짜 조회...")
+        existing_dates = self.get_existing_silver_dates()
+        
+        # 3. 처리할 날짜 필터링
+        if start_date:
+            available_dates = [d for d in available_dates if d >= start_date]
+        if end_date:
+            available_dates = [d for d in available_dates if d <= end_date]
+        
+        # 기존에 처리되지 않은 날짜만 선택
+        dates_to_process = [d for d in available_dates if d not in existing_dates]
+        
+        logger.info(f"\n📊 Backfill 처리 계획:")
+        logger.info(f"   Bronze Layer 전체 날짜: {len(available_dates)}개")
+        logger.info(f"   Silver Layer 기존 날짜: {len(existing_dates)}개")
+        logger.info(f"   처리할 날짜: {len(dates_to_process)}개")
+        
+        if not dates_to_process:
+            logger.info("✅ 모든 날짜가 이미 처리되어 있습니다.")
+            return
+        
+        # 4. 각 날짜별로 Silver Layer 처리
+        successful_dates = []
+        failed_dates = []
+        
+        for i, target_date in enumerate(dates_to_process, 1):
+            logger.info(f"\n{'='*60}")
+            logger.info(f"📅 날짜 {i}/{len(dates_to_process)} 처리 중: {target_date}")
+            logger.info(f"{'='*60}")
+            
+            try:
+                # 개별 날짜 처리
+                self.run_silver_processing(target_date)
+                successful_dates.append(target_date)
+                logger.info(f"✅ {target_date} 처리 완료")
+                
+            except Exception as e:
+                failed_dates.append((target_date, str(e)))
+                logger.error(f"❌ {target_date} 처리 실패: {e}")
+                # 개별 날짜 실패 시에도 계속 진행
+                continue
+        
+        # 5. 최종 요약
+        logger.info("\n" + "=" * 80)
+        logger.info("📈 Silver Layer Backfill 처리 결과 요약")
+        logger.info("=" * 80)
+        logger.info(f" 전체 처리 날짜: {len(dates_to_process)}개")
+        logger.info(f" 성공한 날짜: {len(successful_dates)}개")
+        logger.info(f" 실패한 날짜: {len(failed_dates)}개")
+        
+        if successful_dates:
+            logger.info(f"\n✅ 성공한 날짜:")
+            for date in successful_dates:
+                logger.info(f"   - {date}")
+        
+        if failed_dates:
+            logger.info(f"\n❌ 실패한 날짜:")
+            for date, error in failed_dates:
+                logger.info(f"   - {date}: {error}")
+        
+        logger.info("=" * 80)
     
     def run_silver_processing(self, target_date: Optional[date] = None):
         """Silver Layer 전체 처리 실행"""
