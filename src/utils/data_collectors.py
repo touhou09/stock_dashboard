@@ -6,7 +6,7 @@ Bronze Layer 데이터 수집 모듈
 
 import yfinance as yf
 import pandas as pd
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 import time
 import random
 import requests
@@ -17,7 +17,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class SP500Collector:
-    """S&P 500 종목 리스트 수집기"""
+    """S&P 500 종목 리스트 수집기 - 날짜별 지원"""
     
     WIKI_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
     
@@ -27,6 +27,9 @@ class SP500Collector:
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/121.0",
         ]
+        # 연도별 S&P 500 목록 캐시
+        self._yearly_cache = {}
+        self._current_sp500_df = None
     
     def to_yahoo_symbol(self, sym: str) -> str:
         """클래스 주식 표기: BRK.B -> BRK-B"""
@@ -77,6 +80,123 @@ class SP500Collector:
         df = df.copy()
         df["Symbol"] = df["Symbol"].astype(str).map(self.to_yahoo_symbol)
         return df
+    
+    def get_current_sp500_dataframe(self) -> pd.DataFrame:
+        """현재 S&P 500 DataFrame 반환 (캐싱)"""
+        if self._current_sp500_df is None:
+            logger.info("📊 현재 S&P 500 데이터 수집 중...")
+            self._current_sp500_df = self.get_sp500_from_wikipedia()
+            # 편입일 컬럼 추가
+            if 'Date added' in self._current_sp500_df.columns:
+                self._current_sp500_df['Date added'] = pd.to_datetime(
+                    self._current_sp500_df['Date added'], errors='coerce'
+                )
+        return self._current_sp500_df
+    
+    def get_sp500_tickers_for_date(self, target_date: datetime.date) -> List[str]:
+        """
+        특정 날짜의 S&P 500 구성 종목 반환
+        
+        Args:
+            target_date: 대상 날짜
+            
+        Returns:
+            List[str]: 해당 날짜의 S&P 500 티커 리스트
+        """
+        logger.info(f"📋 {target_date} S&P 500 구성 종목 조회 중...")
+        
+        # 현재 S&P 500 데이터 가져오기
+        sp500_df = self.get_current_sp500_dataframe()
+        
+        if 'Date added' not in sp500_df.columns:
+            logger.warning("⚠️ 편입일 정보가 없어서 현재 S&P 500 목록을 반환합니다.")
+            return sp500_df['Symbol'].dropna().unique().tolist()
+        
+        # 편입일이 대상 날짜 이전인 종목들만 필터링
+        valid_tickers = sp500_df[
+            sp500_df['Date added'] <= pd.Timestamp(target_date)
+        ]['Symbol'].dropna().unique().tolist()
+        
+        # Yahoo Finance용 심볼로 변환
+        valid_tickers = [self.to_yahoo_symbol(ticker) for ticker in valid_tickers]
+        
+        logger.info(f"✅ {target_date} S&P 500 구성 종목: {len(valid_tickers)}개")
+        return valid_tickers
+    
+    def get_sp500_tickers_for_year(self, year: int) -> List[str]:
+        """
+        특정 연도의 S&P 500 구성 종목 반환 (캐싱)
+        
+        Args:
+            year: 대상 연도
+            
+        Returns:
+            List[str]: 해당 연도의 S&P 500 티커 리스트
+        """
+        if year not in self._yearly_cache:
+            logger.info(f"📋 {year}년 S&P 500 구성 종목 캐싱 중...")
+            
+            # 연도 마지막 날짜 기준으로 조회
+            year_end = date(year, 12, 31)
+            self._yearly_cache[year] = self.get_sp500_tickers_for_date(year_end)
+            
+            logger.info(f"✅ {year}년 S&P 500 구성 종목 캐싱 완료: {len(self._yearly_cache[year])}개")
+        
+        return self._yearly_cache[year]
+    
+    def get_sp500_tickers_smart(self, start_date: datetime.date, end_date: datetime.date) -> List[str]:
+        """
+        백필 기간에 맞는 S&P 500 구성 종목 반환 (스마트)
+        
+        Args:
+            start_date: 백필 시작 날짜
+            end_date: 백필 종료 날짜
+            
+        Returns:
+            List[str]: 백필에 적합한 S&P 500 티커 리스트
+        """
+        logger.info(f"📋 백필 기간 {start_date} ~ {end_date} S&P 500 구성 종목 조회 중...")
+        
+        # 같은 연도인 경우 연도별 캐싱 사용
+        if start_date.year == end_date.year:
+            return self.get_sp500_tickers_for_year(start_date.year)
+        
+        # 다른 연도인 경우 시작일 기준으로 조회
+        return self.get_sp500_tickers_for_date(start_date)
+    
+    def get_historical_major_stocks_2000(self) -> List[str]:
+        """
+        2000년에 있었을 것으로 추정되는 주요 S&P 500 종목들
+        Wikipedia 데이터가 부정확한 경우를 위한 대안
+        """
+        return [
+            # 기술주
+            'MSFT', 'IBM', 'INTC', 'CSCO', 'ORCL', 'SUNW', 'DELL', 'HPQ',
+            
+            # 금융주
+            'JPM', 'BAC', 'C', 'WFC', 'GS', 'MS', 'AXP', 'USB', 'PNC', 'TFC',
+            
+            # 제조업
+            'GE', 'BA', 'CAT', 'MMM', 'HON', 'UTX', 'EMR', 'ITW', 'ETN', 'PH',
+            
+            # 소비재
+            'WMT', 'HD', 'PG', 'JNJ', 'KO', 'PEP', 'MCD', 'NKE', 'DIS', 'MCD',
+            
+            # 에너지
+            'XOM', 'CVX', 'COP', 'SLB', 'EOG', 'PXD', 'KMI', 'WMB', 'OKE', 'EPD',
+            
+            # 헬스케어
+            'PFE', 'MRK', 'JNJ', 'ABT', 'TMO', 'DHR', 'BMY', 'LLY', 'AMGN', 'GILD',
+            
+            # 통신
+            'T', 'VZ', 'CMCSA', 'VZ', 'T', 'VZ', 'CMCSA', 'VZ', 'T', 'VZ',
+            
+            # 유틸리티
+            'SO', 'DUK', 'NEE', 'AEP', 'EXC', 'XEL', 'WEC', 'ES', 'PEG', 'ED',
+            
+            # 기타
+            'MCD', 'DIS', 'NKE', 'SBUX', 'COST', 'TGT', 'LOW', 'HD', 'WMT', 'PG'
+        ]
 
 class PriceDataCollector:
     """가격 데이터 수집기"""

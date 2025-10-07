@@ -9,11 +9,14 @@ import argparse
 from dotenv import load_dotenv
 
 # 프로젝트 루트를 Python 경로에 추가
-sys.path.insert(0, '/opt/app')
+import os
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.join(current_dir, '..', '..', '..')
+sys.path.insert(0, os.path.abspath(project_root))
 
-# 모듈 import
-from .bronze.bronze_layer_orchestrator import BronzeLayerOrchestrator
-from .silver.silver_layer_delta import SilverLayerDelta
+# 모듈 import (절대 import로 변경)
+from src.app.bronze.bronze_layer_orchestrator import BronzeLayerOrchestrator
+from src.app.silver.silver_layer_delta import SilverLayerDelta
 
 # .env 파일 로드
 load_dotenv()
@@ -21,7 +24,7 @@ load_dotenv()
 def main():
     """메인 실행 함수"""
     parser = argparse.ArgumentParser(description="Stock Dashboard 데이터 파이프라인")
-    parser.add_argument("--mode", choices=["bronze-price", "bronze-dividend", "bronze-full", "silver", "silver-backfill"], 
+    parser.add_argument("--mode", choices=["bronze-price", "bronze-dividend", "bronze-full", "silver", "silver-backfill", "bronze-backfill", "full-backfill", "setup-membership", "pit-backfill"], 
                        default="bronze-full", help="실행 모드")
     parser.add_argument("--date", type=str, help="처리 날짜 (YYYY-MM-DD)")
     parser.add_argument("--start-date", type=str, help="Backfill 시작 날짜 (YYYY-MM-DD)")
@@ -66,6 +69,30 @@ def main():
             # Silver Layer Backfill 실행
             silver_layer = SilverLayerDelta(gcs_bucket=gcs_bucket)
             silver_layer.run_silver_backfill(start_date, end_date)
+            
+        elif args.mode == "bronze-backfill":
+            # Bronze Layer Backfill 실행
+            from src.app.backfill.backfill_orchestrator import BackfillOrchestrator
+            backfill_orchestrator = BackfillOrchestrator(gcs_bucket=gcs_bucket)
+            backfill_orchestrator.run_bronze_backfill(start_date, end_date)
+            
+        elif args.mode == "full-backfill":
+            # 전체 레이어 Backfill 실행 (기존 방식 - 생존 편향 있음)
+            from src.app.backfill.backfill_orchestrator import BackfillOrchestrator
+            backfill_orchestrator = BackfillOrchestrator(gcs_bucket=gcs_bucket)
+            backfill_orchestrator.run_full_backfill(start_date, end_date, use_pit=False)
+            
+        elif args.mode == "setup-membership":
+            # 멤버십 추적 시스템 설정
+            from src.app.backfill.backfill_orchestrator import BackfillOrchestrator
+            backfill_orchestrator = BackfillOrchestrator(gcs_bucket=gcs_bucket)
+            backfill_orchestrator.setup_membership_tracking(start_date, end_date, use_manual=True)
+            
+        elif args.mode == "pit-backfill":
+            # Point-in-Time 백필 실행 (생존 편향 해결)
+            from src.app.backfill.backfill_orchestrator import BackfillOrchestrator
+            backfill_orchestrator = BackfillOrchestrator(gcs_bucket=gcs_bucket)
+            backfill_orchestrator.run_full_backfill(start_date, end_date, use_pit=True, setup_membership=True)
             
     except Exception as e:
         print(f"❌ 실행 실패: {e}")

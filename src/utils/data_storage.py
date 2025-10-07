@@ -65,7 +65,7 @@ class DeltaStorageManager:
             logger.info(f"📅 기존 데이터 확인 실패 (테이블이 없을 수 있음): {e}")
             return False
     
-    def save_price_data_to_delta(self, all_daily_data: List[pd.DataFrame], target_date: datetime.date):
+    def save_price_data_to_delta(self, all_daily_data: List[pd.DataFrame], target_date: datetime.date, overwrite: bool = False):
         """가격 데이터를 Delta Table에 저장 (Bronze 스키마)"""
         logger.info(f"\n💾 가격 데이터를 Bronze Delta Table에 저장 중...")
         
@@ -73,10 +73,12 @@ class DeltaStorageManager:
             logger.warning("저장할 가격 데이터가 없습니다.")
             return
         
-        # 날짜 중복 확인
-        if self.check_existing_data(self.price_table_path, target_date):
+        # 날짜 중복 확인 (덮어쓰기 옵션에 따라)
+        if not overwrite and self.check_existing_data(self.price_table_path, target_date):
             logger.warning(f"⚠️ {target_date} 날짜의 가격 데이터가 이미 존재합니다. 건너뜁니다.")
             return
+        elif overwrite and self.check_existing_data(self.price_table_path, target_date):
+            logger.info(f"🔄 {target_date} 날짜의 기존 데이터를 덮어쓰기합니다.")
         
         # pandas DataFrame 결합
         combined_df = pd.concat(all_daily_data, ignore_index=True)
@@ -88,8 +90,25 @@ class DeltaStorageManager:
         try:
             # Delta Table이 존재하는지 확인
             delta_table = DeltaTable(self.price_table_path)
-            mode = "append"
-            logger.info("✅ 기존 Bronze 가격 테이블에 데이터 추가")
+            
+            if overwrite:
+                # 덮어쓰기 모드: 기존 데이터에서 해당 날짜 제거 후 추가
+                existing_df = delta_table.to_pandas()
+                if not existing_df.empty and 'date' in existing_df.columns:
+                    existing_df['date'] = pd.to_datetime(existing_df['date']).dt.date
+                    # 해당 날짜 제외
+                    existing_df = existing_df[existing_df['date'] != target_date]
+                    # 기존 데이터와 새 데이터 결합
+                    if not existing_df.empty:
+                        combined_df = pd.concat([existing_df, combined_df], ignore_index=True)
+                    mode = "overwrite"
+                    logger.info("🔄 기존 Bronze 가격 테이블 덮어쓰기")
+                else:
+                    mode = "overwrite"
+                    logger.info("🆕 새로운 Bronze 가격 테이블 생성")
+            else:
+                mode = "append"
+                logger.info("✅ 기존 Bronze 가격 테이블에 데이터 추가")
         except Exception:
             mode = "overwrite"
             logger.info("🆕 새로운 Bronze 가격 테이블 생성")
@@ -97,10 +116,10 @@ class DeltaStorageManager:
         # [수정] deltalake 1.0+ WriterProperties로 zstd 압축 설정
         arrow_table = pa.Table.from_pandas(combined_df)
         
-        # zstd 압축 설정
+        # zstd 압축 및 타임스탬프 기능 설정
         writer_props = WriterProperties(
             compression='ZSTD',
-            compression_level=5
+            compression_level=5,
         )
         
         # Delta Table에 저장
@@ -114,6 +133,7 @@ class DeltaStorageManager:
                 "delta.dataSkippingStatsColumns": "ticker,close",  # 통계 최적화
                 "delta.autoOptimize.optimizeWrite": "true",        # 자동 최적화
                 "delta.autoOptimize.autoCompact": "true"           # 자동 압축
+                # writerVersion 제거하여 기본 버전 사용
             }
         )
         
@@ -141,10 +161,10 @@ class DeltaStorageManager:
         # [수정] deltalake 1.0+ WriterProperties로 zstd 압축 설정
         arrow_table = pa.Table.from_pandas(dividend_events_df)
         
-        # zstd 압축 설정
+        # zstd 압축 및 타임스탬프 기능 설정
         writer_props = WriterProperties(
             compression='ZSTD',
-            compression_level=5
+            compression_level=5,
         )
         
         # Delta Table에 저장
@@ -158,6 +178,7 @@ class DeltaStorageManager:
                 "delta.dataSkippingStatsColumns": "ticker,amount",  # 통계 최적화
                 "delta.autoOptimize.optimizeWrite": "true",         # 자동 최적화
                 "delta.autoOptimize.autoCompact": "true"            # 자동 압축
+                # writerVersion 제거하여 기본 버전 사용
             }
         )
         

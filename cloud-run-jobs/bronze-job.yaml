@@ -1,0 +1,112 @@
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: stock-dashboard-bronze
+  namespace: '240269058578'
+  labels:
+    cloud.googleapis.com/location: us-east1
+    app: stock-dashboard
+    layer: bronze
+  annotations:
+    run.googleapis.com/client-name: cloud-console
+    run.googleapis.com/creator: yujin3178@gmail.com
+    run.googleapis.com/lastModifier: yujin3178@gmail.com
+    run.googleapis.com/execution-environment: gen2
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/client-name: cloud-console
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      parallelism: 1
+      taskCount: 1
+      template:
+        spec:
+          volumes:
+          - name: gcs-stock-data
+            csi:
+              driver: gcsfuse.run.googleapis.com
+              volumeAttributes:
+                bucketName: stock_data_01
+                mountOptions: only-dir=stock_dashboard
+          containers:
+          - name: stock-dashboard-bronze
+            image: docker.io/touhou09/stockprocessing:v0.0.15
+            command: ["python"]
+            args: ["src/app/main.pyc", "--mode", "bronze-full"]
+            env:
+            # [수정] GCS 버킷 설정
+            - name: GCS_BUCKET
+              value: "stock_data_01"
+            # [수정] Google Cloud 인증 정보
+            - name: type
+              value: service_account
+            - name: project_id
+              value: stock-dashboard-472700
+            - name: private_key_id
+              value: b7a4cdf4585aca5dab65db4a43c333dddd5c4729
+            - name: private_key
+              value: |
+                -----BEGIN PRIVATE KEY-----
+                MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCWsitx0Ya2jGCr
+                zwkbLR0srF8QY1yVe33VkbaUr7UOkE850OUQG9mxwzFMs3CTK7D4L6tmNbDU57Fg
+                Yiq6rrLcohaJLQAC+lI+OxTlUK1UORqidClfk0mkoCmBsrUrkclU4BIb7397TIUR
+                BkICZU6Azhx3oyahXZL+LIOjKkDgwLbD/7FtinQ2jJ919n9AVLiua0Y2Q3/jD0gX
+                enjRwUX5KRQlw5hwsexlHTQjKQEyr6/27K4MtDxF+9iQGwBqA3CqQuqpK4+L8/vW
+                rFW739vx0UBgHp0xayMnBqHjp7cZVXU90/KB5SQMUPdcFwBKqjxzZGqSZZ5gHPKw
+                x1zh8dtXAgMBAAECggEABrxbmKCXcIvaezE0zaL0YRkF4n1tV8cnhocXDcnn7/ak
+                DjXg6qvpup7fJMEHrqRczwVsKoIK3VXv4T87M0hBVNqdmfjJvY8w9cHZTVQiV855
+                6MxNao2XMAVgZZNa++HJiacHxecsaRLU4mS1bZ+Om89s9wjgzBb2TdVxZAAII+y8
+                OU+GoSlXvX7baFXsdfVO0zN1+ljcB29jv9cI2pkclCY7U1q2jMzHg/yhg8VcF7NR
+                6KtfXgvE4EaK74yDuUPC82Xt4V8aY+pAmUo8dydLMJH46A1nFcoAvXaV37q3atXn
+                Ce9edE8sRCDqgYCZbivb/1xwARtPYQ1bZYVh/BRWMQKBgQDUAglR8WqdiIxLmC/o
+                4q9BQTMiA310xGr0YzPnU/19EjWOlDkvdlv13m245c7QlLfqiUIew2Nksl5STe9I
+                SKu0qUK5cy2+4Bu+fbuSbWtuVlTT8tc2zM/OfnxH2DRhoKSCNk4IqloNBlCXxeN5
+                brxV7c6fenHNw9P6sLuCaf/HpwKBgQC19zY0em9l6/cyjBRohU4BwoaL/5bM89vJ
+                GB0vI74NK1hd/Dq8hDdvlu8FWe1+UkBD3zNEfJVx2wotSuB1NtE4dCfGWupqly07
+                i8RCK7Aa5bK9PJGaD9eUAE8VYkjUiJ/oE3QtLH0pxhJFRTfInBvA7KGaWBnsx/2/
+                hmEtixzE0QKBgFy9N059CGI45QX8YJjC8F7fInryg+KcOR0GeCHs/6nCWWMxO4Kj
+                h76Zue1zuXBMXddei2nhlozp6ZCfPtij0ViJ4gI1fAFPD1PYtEBtVN1DLoA4biQu
+                m4h8k+jpjqBWISBEmQX5XsLrzD1X9xWbdw8vo37nlPipfQTgYmW98IFpAoGBAJeU
+                TEog56UukGhB+korKZUbtzrt+W/Xf/GfLchz7MBJqD36e+9H8Gn7gDaj98tvtusT
+                BkD5yv/iKDMcmafqtxRg5jU8zONn9Z0Ry7YXcIana2JqDxwYMEuwijBVBDhPa21G
+                r1NmKQlgXx3nEBYDvLbUJ7ZLx6TP4BfoWBE5PgjRAoGAOz36njCRG3hOPruT1kRz
+                noUXM4vGeWTm8XJnI/xYoiKt0nJjAMni974iYqMuDjiVeErp7913EVtzaGKNibr9
+                OLOIzRsHjLPCQLXJxlaKggGIcK/EDyTo7lOeg9JEUp8AAyN05I1DvrHp0wr3ANnm
+                Yv8Uh8BpM6BMBqgp6VnMckc=
+                -----END PRIVATE KEY-----
+            - name: client_email
+              value: admin-221@stock-dashboard-472700.iam.gserviceaccount.com
+            - name: client_id
+              value: '117666841869638367739'
+            - name: auth_uri
+              value: https://accounts.google.com/o/oauth2/auth
+            - name: token_uri
+              value: https://oauth2.googleapis.com/token
+            - name: auth_provider_x509_cert_url
+              value: https://www.googleapis.com/oauth2/v1/certs
+            - name: client_x509_cert_url
+              value: https://www.googleapis.com/robot/v1/metadata/x509/admin-221%40stock-dashboard-472700.iam.gserviceaccount.com
+            - name: universe_domain
+              value: googleapis.com
+            # [수정] Bronze Layer 전용 환경 변수
+            - name: PYTHONPATH
+              value: "/opt/app"
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: BATCH_SIZE
+              value: "50"
+            - name: MAX_RETRIES
+              value: "3"
+            resources:
+              limits:
+                # [수정] Bronze Layer 리소스 설정 (가격 데이터 수집용)
+                cpu: 2000m
+                memory: 4Gi
+            volumeMounts:
+            - name: gcs-stock-data
+              mountPath: /mnt/gcs
+          maxRetries: 3
+          timeoutSeconds: '3600'  # [수정] 1시간 타임아웃
+          serviceAccountName: admin-221@stock-dashboard-472700.iam.gserviceaccount.com

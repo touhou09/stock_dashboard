@@ -9,7 +9,9 @@ alwaysApply: true
 ## 기본 규칙
 - 답변은 무조건 한글로 대답
 - 코드 수정 시 수정된 부분 주석으로 표시
+- 구현된 코드의 경우 추가적으로 설명
 - Medallion Architecture 패턴 준수
+- CHANGELOG.md를 통해 관련 내용을 정리 및 context 이전 시 활용
 - Delta Lake 최적화 (압축, 파티셔닝) 활용
 - 테스트 코드 작성 필수
 
