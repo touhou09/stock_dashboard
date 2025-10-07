@@ -16,7 +16,10 @@ import re
 import time
 import os
 
-load_dotenv()
+try:
+    load_dotenv()
+except Exception:
+    pass
 logger = logging.getLogger(__name__)
 
 class SP500MembershipTracker:

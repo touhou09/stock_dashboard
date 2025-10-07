@@ -12,8 +12,11 @@ from deltalake import DeltaTable, write_deltalake, WriterProperties
 import pyarrow as pa
 from dotenv import load_dotenv
 
-# .env 파일 로드
-load_dotenv()
+# .env 파일 로드 (선택적)
+try:
+    load_dotenv()
+except Exception:
+    pass
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)

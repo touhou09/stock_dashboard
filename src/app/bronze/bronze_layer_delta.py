@@ -13,7 +13,10 @@ from google.cloud import storage
 from dotenv import load_dotenv
 
 # .env 파일 로드
-load_dotenv()
+try:
+    load_dotenv()
+except Exception:
+    pass
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -221,8 +224,11 @@ def main():
     import os
     from dotenv import load_dotenv
     
-    # .env 파일 로드
-    load_dotenv()
+    # .env 파일 로드 (선택적)
+    try:
+        load_dotenv()
+    except Exception:
+        pass
     
     # GCS 설정 (환경변수에서 가져오기)
     gcs_bucket = os.getenv("GCS_BUCKET", "your-stock-dashboard-bucket")
