@@ -8,11 +8,7 @@ from datetime import datetime, timedelta
 import argparse
 from dotenv import load_dotenv
 
-# 프로젝트 루트를 Python 경로에 추가
-import os
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.join(current_dir, '..', '..', '..')
-sys.path.insert(0, os.path.abspath(project_root))
+# PYTHONPATH 환경변수로 경로 설정 (Dockerfile에서 설정됨)
 
 # 모듈 import (절대 import로 변경)
 from src.app.bronze.bronze_layer_orchestrator import BronzeLayerOrchestrator

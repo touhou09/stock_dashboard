@@ -18,6 +18,7 @@ COPY *.py /opt/app/
 
 # [수정] 이후 모든 RUN/CMD에서 venv 파이썬을 쓰도록 PATH를 먼저 설정
 ENV PATH="/opt/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/opt/app"
 
 # [수정] 바이트코드 컴파일하여 성능 최적화
 RUN uv run python -m compileall -b .
