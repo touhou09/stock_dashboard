@@ -13,7 +13,10 @@ from src.utils.data_collectors import SP500Collector, PriceDataCollector, Divide
 from src.utils.data_storage import DeltaStorageManager
 from src.utils.data_validators import DataValidator, BackfillValidator
 
-load_dotenv()
+try:
+    load_dotenv()
+except Exception:
+    pass
 logger = logging.getLogger(__name__)
 
 class BronzeLayerOrchestrator:

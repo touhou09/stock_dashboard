@@ -16,7 +16,10 @@ import time
 from src.app.membership.sp500_membership_tracker import SP500MembershipTracker
 from src.utils.data_storage import DeltaStorageManager
 
-load_dotenv()
+try:
+    load_dotenv()
+except Exception:
+    pass
 logger = logging.getLogger(__name__)
 
 class BronzeLayerPointInTime:

@@ -14,8 +14,12 @@ from dotenv import load_dotenv
 from src.app.bronze.bronze_layer_orchestrator import BronzeLayerOrchestrator
 from src.app.silver.silver_layer_delta import SilverLayerDelta
 
-# .env 파일 로드
-load_dotenv()
+# .env 파일 로드 (선택적)
+try:
+    load_dotenv()
+except Exception:
+    # .env 파일이 없어도 계속 진행 (Cloud Run에서는 환경변수로 설정됨)
+    pass
 
 def main():
     """메인 실행 함수"""

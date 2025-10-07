@@ -15,7 +15,10 @@ from src.app.silver.silver_layer_delta import SilverLayerDelta
 from src.app.membership.sp500_membership_tracker import SP500MembershipTracker
 # Gold Layer는 이미 BigQuery에서 쿼리문으로 구현되어 있음
 
-load_dotenv()
+try:
+    load_dotenv()
+except Exception:
+    pass
 logger = logging.getLogger(__name__)
 
 class BackfillOrchestrator:

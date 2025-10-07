@@ -15,6 +15,7 @@ RUN uv sync --frozen --no-dev
 # 소스 코드 복사(변경 없음)
 COPY src /opt/app/src
 COPY *.py /opt/app/
+COPY .env* /opt/app/ 2>/dev/null || true
 
 # [수정] 이후 모든 RUN/CMD에서 venv 파이썬을 쓰도록 PATH를 먼저 설정
 ENV PATH="/opt/app/.venv/bin:$PATH"
