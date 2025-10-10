@@ -2,12 +2,17 @@
 
 미국 배당주 데이터와 S&P 500 데이터를 처리하는 확장 가능한 데이터 파이프라인 프로젝트입니다. Medallion Architecture 패턴을 적용하여 Bronze → Silver → Gold 레이어로 구성되어 있습니다.
 
+아래 링크를 통해 실제 서비스에 접속 및 사용을 할 수 있습니다.  
+[대시보드](https://stock-dashboard-front-240269058578.asia-northeast3.run.app/)
+
+![img1](/img/img1.png)
+
 ## 🏗️ 아키텍처 개요
 
 ### Medallion Architecture
 - **Bronze Layer**: 원시 데이터 수집 및 저장 (Delta Lake)
 - **Silver Layer**: 데이터 정제 및 배당 지표 계산 (Delta Lake)
-- **Gold Layer**: 분석용 뷰 생성 (BigQuery View - 예정)
+- **Gold Layer**: 분석용 뷰 생성 (BigQuery View)
 
 ### 기술 스택
 - **언어**: Python 3.12
@@ -419,23 +424,11 @@ gcloud run deploy stock-dashboard \
 
 ## 🚧 향후 계획
 
-### Gold Layer 구현
-- BigQuery View로 분석용 뷰 생성
-- 대시보드용 집계 데이터 준비
-
-### 프론트엔드 개발
-- React/Next.js 기반 대시보드
-- 배당수익률 차트 및 분석 도구
-
-### 자동화
-- Cloud Scheduler를 통한 정기적 데이터 수집
-- 데이터 품질 모니터링
-- 알림 시스템 구축
+- n8n을 이용한 배당주 분석 에이전트 도입
+- s&p 500 외의 나스닥 등 다양한 주식 시장 도입
 
 ## 📞 문의
 
 프로젝트 관련 문의사항이 있으시면 이슈를 생성해 주세요.
 
 ---
-
-**Stock Dashboard** - Medallion Architecture 기반 배당주 데이터 파이프라인
