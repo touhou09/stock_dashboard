@@ -292,10 +292,8 @@ class BronzeLayerOrchestrator:
             
             if failed_dates:
                 logger.info(f"\n❌ 실패한 날짜:")
-                for date, error in failed_dates[:10]:  # 최대 10개만 표시
+                for date, error in failed_dates:  # [수정] 모든 실패 로그 출력
                     logger.info(f"   - {date}: {error}")
-                if len(failed_dates) > 10:
-                    logger.info(f"   ... 외 {len(failed_dates) - 10}개")
             
             logger.info("=" * 80)
             return len(failed_dates) == 0
